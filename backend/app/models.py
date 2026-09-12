@@ -170,6 +170,9 @@ class Plan(BaseModel):
     routing_provider: Literal["openrouteservice", "osrm", "straight-line"]
     ranked_by: Literal["ai", "heuristic"]
     summary: str = ""
+    # What a traveller said that visibly changed this route. Shown to the group
+    # so a constraint is never applied silently.
+    constraints_applied: list[str] = []
 
 
 # --------------------------------------------------------------------------

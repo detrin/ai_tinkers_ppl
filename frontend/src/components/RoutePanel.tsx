@@ -60,6 +60,14 @@ export function RoutePanel({
 
       {plan?.summary ? <p className="summary">{plan.summary}</p> : null}
 
+      {plan?.constraints_applied.length ? (
+        <ul className="constraints">
+          {plan.constraints_applied.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
+      ) : null}
+
       {plan ? (
         <>
           <ol className="stops">

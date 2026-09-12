@@ -87,6 +87,35 @@ degrades the same way (see below).
    exact for the handful of stops a group does in a day; a test checks it
    against brute force.
 
+## Planning around the people, not just the city
+
+Every traveller carries what the agent heard them say: what they want, what
+they cannot do, and what they can spend. All of it reaches the planner.
+
+The model is given each person in their own words, and told that a constraint
+beats a preference. But asking is not enough, so a limit on how far someone can
+walk is also enforced in code:
+
+1. Places further than the limit from the meeting point are never offered to
+   the model, so it chooses from somewhere reachable rather than being asked to
+   be careful.
+2. The route is then built outward from the meeting point, taking only the
+   nearest stop still within the limit. Every leg fits by construction.
+3. If nothing is close enough, the plan keeps the nearest stop and says so.
+   `constraints_applied` on every plan names the person, quotes what they said,
+   and states what it cost, so a constraint is never applied silently.
+
+Trimming a finished route cannot do this, and quietly gets it wrong: drop the
+middle stop of A-B-C and the new A-C leg can be longer than either it replaced.
+An earlier version did exactly that and reported a 3 km leg as being under
+900 m. A test now pins that case.
+
+One caveat. The limit is judged on walking distance. Only OpenRouteService
+gives a real pedestrian profile; the public OSRM server answers for cars, and a
+300 m walk across a pedestrianised old town comes back as 1.7 km of one-way
+streets. Without an `ORS_API_KEY` the check falls back to a straight-line
+walking estimate, which is far closer to the truth than a car's route.
+
 ## Live positions
 
 Each member opens one socket. Sending `{"type":"position","lat":…,"lon":…}`
@@ -178,10 +207,11 @@ app/
     places.py        Overpass query, tag scoring, dedupe
     ranking.py       the Claude call, and the heuristic that replaces it
     routing.py       distance matrix providers, 2-opt ordering
+    accessibility.py what a constraint means for how far anyone walks
     planner.py       ties the above into a Plan
   routers/
     groups.py        REST
     trips.py         Slack mapping, travellers, messages, approvals
     realtime.py      WebSocket
-tests/               39 tests, no network
+tests/               47 tests, no network
 ```
