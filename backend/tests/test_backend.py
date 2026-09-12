@@ -490,6 +490,41 @@ def test_plan_broadcast_carries_refreshed_member_distances(client):
         assert event["members"][0]["distance_to_next_stop_m"] is not None
 
 
+def test_leaving_tells_the_rest_of_the_group(client):
+    group = client.post("/api/groups", json={"name": "G", "city": "Prague"}).json()
+    gid = group["id"]
+    ana = client.post(f"/api/groups/{gid}/members", json={"display_name": "Ana"}).json()
+    bo = client.post(f"/api/groups/{gid}/members", json={"display_name": "Bo"}).json()
+
+    with client.websocket_connect(f"/ws/groups/{gid}?member_id={bo['id']}") as bo_ws:
+        assert bo_ws.receive_json()["type"] == "snapshot"
+
+        gone = client.delete(f"/api/groups/{gid}/members/{ana['id']}")
+        assert gone.status_code == 204
+
+        event = bo_ws.receive_json()
+        assert event == {"type": "member_left", "member_id": ana["id"]}
+
+    remaining = client.get(f"/api/groups/{gid}/members").json()
+    assert [m["display_name"] for m in remaining] == ["Bo"]
+
+    # Leaving twice is not an error the caller has to guard against; it is a 404.
+    assert client.delete(f"/api/groups/{gid}/members/{ana['id']}").status_code == 404
+
+
+def test_a_member_who_left_cannot_reopen_the_socket(client):
+    group = client.post("/api/groups", json={"name": "G", "city": "Prague"}).json()
+    gid = group["id"]
+    ana = client.post(f"/api/groups/{gid}/members", json={"display_name": "Ana"}).json()
+    client.delete(f"/api/groups/{gid}/members/{ana['id']}")
+
+    with pytest.raises(Exception):
+        with client.websocket_connect(
+            f"/ws/groups/{gid}?member_id={ana['id']}"
+        ) as socket:
+            socket.receive_json()
+
+
 def test_websocket_rejects_an_unknown_member(client):
     group = client.post("/api/groups", json={"name": "G", "city": "Prague"}).json()
     with pytest.raises(Exception):
