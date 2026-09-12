@@ -4,10 +4,10 @@ import { useState, type FormEvent } from "react";
 import type { WorkplaceControls } from "@/lib/use-workplace";
 
 export function WorkplaceFollowups({
-  incidentId,
+  tripId,
   workplace,
 }: {
-  incidentId: string;
+  tripId: string;
   workplace: WorkplaceControls;
 }) {
   const [title, setTitle] = useState("");
@@ -22,7 +22,7 @@ export function WorkplaceFollowups({
     setPreparing(true);
     setError("");
     try {
-      await workplace.propose({ incidentId, title, details });
+      await workplace.propose({ tripId, title, details });
       setTitle("");
       setDetails("");
     } catch (error) {
@@ -65,7 +65,7 @@ export function WorkplaceFollowups({
           <strong>Connect a workspace to save tasks</strong>
           <p>{status.message}</p>
           <p>
-            You can still inspect sample incidents. No browser-only task will
+            You can still inspect the trip. No browser-only task will
             be created as a stand-in.
           </p>
         </div>
@@ -109,7 +109,7 @@ export function WorkplaceFollowups({
           ))}
         </ul>
       ) : status?.status === "connected" ? (
-        <p className="ck-empty">No saved follow-ups for {incidentId}.</p>
+        <p className="ck-empty">No saved follow-ups for {tripId}.</p>
       ) : null}
 
       <button
@@ -123,7 +123,7 @@ export function WorkplaceFollowups({
 
       <form onSubmit={submit} className="ck-task-form ck-task-form--stacked">
         <label className="ck-sr-only" htmlFor="task-title">
-          New follow-up for {incidentId}
+          New follow-up for {tripId}
         </label>
         <input
           id="task-title"

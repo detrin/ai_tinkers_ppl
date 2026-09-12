@@ -2,7 +2,7 @@
 
 **OpenAI + CopilotKit React + Ambiguous AI**
 
-Build an agent that sees the selected record or page, helps the user act on it, and creates a workplace record that remains after a refresh. Try a customer workspace, project review page, or personal planning app. Replace the sample incident domain with your own project.
+The web surface of the group trip planner. It opens a trip by join code, shows the travellers and what each of them wants, and is where a proposed itinerary gets approved. Trips come from the shared backend in `backend/`, which Slack (`apps/channel`) writes to as well, so both surfaces see the same records. The live map lives at the backend's `/ui/`.
 
 [![Web app agent demo](../../assets/demos/web.gif)](../../assets/demos/web.mp4)
 
@@ -29,12 +29,12 @@ To use OpenRouter, follow the [shared provider settings](../../using-sponsor-too
 npm run dev:web
 ```
 
-Open `http://127.0.0.1:3100` or `http://localhost:3100` and select an incident. The dev and start scripts bind the credential-backed approval server to loopback by default; keep that boundary unless you add your own authentication and trusted-origin policy.
+Start the trip backend first (`uvicorn app.main:app` in `backend/`), then open `http://127.0.0.1:3100` and enter a trip's six-character join code. Point elsewhere with `NEXT_PUBLIC_TRIP_API_URL`. The dev and start scripts bind the credential-backed approval server to loopback by default; keep that boundary unless you add your own authentication and trusted-origin policy.
 
 ## Try the flow
 
-1. Ask: “What's happening here?” Check the answer against the incident currently selected.
-2. Ask: “Create a follow-up for this incident.”
+1. Ask: “Where are we going?” Check the answer against the trip currently open.
+2. Ask: “Propose an itinerary.” It is put forward, not agreed; approve it with the button on the page.
 3. Review the page proposal. Click **Approve & save to Ambiguous** only if the fields are correct. The app should return the actual record ID and any provider link.
 4. Refresh the browser. Ask the agent to retrieve the saved task by its ID from Ambiguous, or click **Refresh from Ambiguous**. Check the same record returns without creating a duplicate.
 5. Repeat with **Decline** and confirm no task is created.
@@ -45,8 +45,8 @@ The result should be a retrievable Ambiguous record with the same ID after refre
 
 | Piece | File |
 | --- | --- |
-| App and selected record | [src/app/page.tsx](src/app/page.tsx) and [src/lib/incidents.ts](src/lib/incidents.ts) |
-| Context and frontend tools | [src/components/app-control.tsx](src/components/app-control.tsx): `useAgentContext`, `select_incident`, `propose_followup`, `retrieve_followup`, and `refresh_followups` |
+| App and open trip | [src/app/page.tsx](src/app/page.tsx) and [src/lib/trips.ts](src/lib/trips.ts) |
+| Context and frontend tools | [src/components/trip-control.tsx](src/components/trip-control.tsx): `useAgentContext`, `open_trip`, and `propose_itinerary`. Approving is deliberately not a tool: only a person's click approves. |
 | Approval UI and provider reads | [src/components/workplace-followups.tsx](src/components/workplace-followups.tsx) and [src/lib/use-workplace.ts](src/lib/use-workplace.ts) |
 | Server approval boundary | [src/app/api/followups/route.ts](src/app/api/followups/route.ts) and [src/lib/server/followups.ts](src/lib/server/followups.ts) |
 | Ambiguous MCP adapter | [src/lib/server/workplace.ts](src/lib/server/workplace.ts), reads workspace context and saves approved tasks |

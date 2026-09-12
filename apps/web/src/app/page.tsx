@@ -1,39 +1,96 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   CopilotChat,
   useConfigureSuggestions,
 } from "@copilotkit/react-core/v2";
 import { GenerativeUI } from "@/components/generative-ui";
-import { AppControl } from "@/components/app-control";
-import { findIncident, incidents, workspaceContext } from "@/lib/incidents";
-import { useWorkplace } from "@/lib/use-workplace";
-import { WorkplaceFollowups } from "@/components/workplace-followups";
+import { TripControl } from "@/components/trip-control";
+import {
+  MAP_UI_URL,
+  metres,
+  minutes,
+  tripApi,
+  type Proposal,
+  type Trip,
+} from "@/lib/trips";
 
 export default function Home() {
-  const [selectedId, setSelectedId] = useState<string>(incidents[0].id);
-  const workplace = useWorkplace(selectedId);
-  const { selectedIncident: incident } = workspaceContext(
-    selectedId,
-    workplace.status?.status === "connected" ? workplace.status.tasks : [],
-  );
-  const selectIncident = useCallback((id: string) => {
-    setSelectedId(findIncident(id).id);
+  const [trip, setTrip] = useState<Trip | null>(null);
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = useCallback(async (tripId: string) => {
+    setTrip(await tripApi.byId(tripId));
   }, []);
+
+  // The backend is the source of truth and Slack writes to it too, so poll
+  // while a trip is open rather than trusting what we loaded once.
+  useEffect(() => {
+    if (!trip) return;
+    const id = setInterval(() => {
+      void refresh(trip.id).catch(() => undefined);
+    }, 5000);
+    return () => clearInterval(id);
+  }, [trip?.id, refresh]);
+
+  const openTrip = useCallback(async (joinCode: string) => {
+    const found = await tripApi.byCode(joinCode);
+    setTrip(found);
+    setError(null);
+    return `Opened ${found.name} in ${found.city.display_name}.`;
+  }, []);
+
+  const proposeItinerary = useCallback(
+    async (maxStops: number) => {
+      if (!trip) throw new Error("Open a trip first.");
+      const proposal = await tripApi.propose(trip.id, maxStops);
+      await refresh(trip.id);
+      return `Proposed ${proposal.plan.stops.length} stops. It is waiting for approval.`;
+    },
+    [trip, refresh],
+  );
+
+  const submitCode = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await openTrip(code.trim());
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not open that trip.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const decide = async (proposal: Proposal, approve: boolean) => {
+    if (!trip) return;
+    setBusy(true);
+    try {
+      if (approve) await tripApi.approve(trip.id, proposal.id, "web");
+      else await tripApi.decline(trip.id, proposal.id, "web");
+      await refresh(trip.id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "That did not go through.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   useConfigureSuggestions(
     {
       suggestions: [
         {
-          title: "Summarize this incident",
+          title: "Summarize this trip",
           message:
-            "Summarize the selected incident using the page context. What needs attention?",
+            "Summarize the open trip from the page context: where we are going, what everyone wants, and what is still undecided.",
         },
         {
-          title: "Propose a follow-up",
+          title: "Propose an itinerary",
           message:
-            "Prepare one useful Ambiguous follow-up for the selected incident. Show me the proposal before it is saved.",
+            "Build a walking itinerary for this trip and put it forward for the group to approve.",
         },
       ],
       available: "before-first-message",
@@ -41,81 +98,163 @@ export default function Home() {
     [],
   );
 
+  const openProposals = trip?.proposals.filter((p) => p.status === "proposed") ?? [];
+
   return (
     <>
       <GenerativeUI />
-      <AppControl
-        selectedId={selectedId}
-        selectIncident={selectIncident}
-        workplace={workplace}
+      <TripControl
+        trip={trip}
+        openTrip={openTrip}
+        proposeItinerary={proposeItinerary}
       />
       <main className="ck-workspace">
         <header className="ck-workspace-header">
           <div>
-            <p className="ck-eyebrow">Agents, everywhere · Web example</p>
-            <h1>Incident assistant</h1>
+            <p className="ck-eyebrow">Agents, everywhere · Group travel</p>
+            <h1>{trip ? trip.name : "Group trip planner"}</h1>
             <p className="ck-intro">
-              Pick an incident. Ask your assistant. Review a follow-up.
+              {trip
+                ? trip.city.display_name
+                : "Open a trip with its join code. The same trip is live in Slack and on the map."}
             </p>
           </div>
-          <span className="ck-tag">Sample data</span>
+          <a className="ck-tag" href={MAP_UI_URL} target="_blank" rel="noreferrer">
+            Open the map ↗
+          </a>
         </header>
 
         <div className="ck-workspace-grid">
-          <section className="ck-panel" aria-labelledby="incident-title">
-            <div className="ck-incident-picker">
-              <label htmlFor="incident-select">Incident</label>
-              <select
-                id="incident-select"
-                value={selectedId}
-                onChange={(event) => selectIncident(event.target.value)}
-              >
-                {incidents.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.id} · {item.service}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <section className="ck-panel" aria-labelledby="trip-title">
+            <form className="ck-trip-picker" onSubmit={submitCode}>
+              <label htmlFor="join-code">Join code</label>
+              <input
+                id="join-code"
+                value={code}
+                onChange={(event) => setCode(event.target.value.toUpperCase())}
+                maxLength={6}
+                placeholder="SWZCAZ"
+                style={{ textTransform: "uppercase", letterSpacing: "0.16em" }}
+              />
+              <button type="submit" disabled={busy || code.trim().length < 6}>
+                Open
+              </button>
+            </form>
 
-            <div className="ck-detail">
-              <span className="ck-status-label">{incident.status}</span>
-              <h2 id="incident-title">{incident.title}</h2>
-              <p>{incident.summary}</p>
-              <details className="ck-more" key={incident.id}>
-                <summary>Details &amp; timeline</summary>
-                <dl className="ck-detail-facts">
-                  <div>
-                    <dt>Incident lead</dt>
-                    <dd>{incident.owner}</dd>
-                  </div>
-                  <div>
-                    <dt>Severity</dt>
-                    <dd>{incident.severity}</dd>
-                  </div>
-                  <div>
-                    <dt>Last update</dt>
-                    <dd>{incident.updated}</dd>
-                  </div>
-                </dl>
-                <h3>Impact</h3>
-                <p>{incident.impact}</p>
-                <h3>Timeline</h3>
-                <ol className="ck-timeline">
-                  {incident.timeline.map((event) => (
-                    <li key={event.time}>
-                      <time>{event.time} UTC</time>
-                      <div>
-                        <strong>{event.author}</strong>
-                        <p>{event.detail}</p>
-                      </div>
+            {error ? <p role="alert">{error}</p> : null}
+
+            {!trip ? (
+              <div className="ck-detail">
+                <h2 id="trip-title">No trip open</h2>
+                <p>
+                  Trips are created in Slack by mentioning the trip planner, or on
+                  the map. Open one here with its join code to review it and
+                  approve an itinerary.
+                </p>
+              </div>
+            ) : (
+              <div className="ck-detail">
+                <span className="ck-status-label">
+                  {trip.plan ? "Itinerary agreed" : "No itinerary yet"}
+                </span>
+                <h2 id="trip-title">{trip.city.name}</h2>
+                <p>
+                  {trip.members.length}{" "}
+                  {trip.members.length === 1 ? "traveller" : "travellers"} · join
+                  code {trip.join_code}
+                </p>
+
+                <h3>Travellers</h3>
+                <ul>
+                  {trip.members.map((member) => (
+                    <li key={member.id}>
+                      <strong>{member.display_name}</strong>
+                      {member.budget != null
+                        ? ` · budget ${member.budget} ${member.currency}`
+                        : ""}
+                      {member.preferences.length
+                        ? ` · wants ${member.preferences.join(", ")}`
+                        : ""}
+                      {member.constraints.length
+                        ? ` · ${member.constraints.join("; ")}`
+                        : ""}
                     </li>
                   ))}
-                </ol>
-              </details>
-            </div>
+                </ul>
 
-            <WorkplaceFollowups incidentId={selectedId} workplace={workplace} />
+                {trip.plan ? (
+                  <>
+                    <h3>The agreed itinerary</h3>
+                    <ol className="ck-timeline">
+                      {trip.plan.stops.map((stop) => (
+                        <li key={stop.place.id}>
+                          <time>{metres(stop.distance_from_previous_m)}</time>
+                          <div>
+                            <strong>{stop.place.name}</strong>
+                            <p>
+                              {stop.place.reason || stop.place.category} ·{" "}
+                              {stop.place.suggested_minutes} min there
+                            </p>
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                    <p>
+                      {metres(trip.plan.total_distance_m)} walking ·{" "}
+                      {minutes(trip.plan.total_travel_seconds)} on foot
+                    </p>
+                  </>
+                ) : null}
+
+                <h3>Waiting for approval</h3>
+                {openProposals.length === 0 ? (
+                  <p>Nothing proposed. Ask the assistant to build an itinerary.</p>
+                ) : (
+                  openProposals.map((proposal) => (
+                    <article key={proposal.id} className="ck-card">
+                      <h4>
+                        {proposal.plan.stops.length} stops ·{" "}
+                        {metres(proposal.plan.total_distance_m)} walking
+                      </h4>
+                      <p>{proposal.plan.stops.map((s) => s.place.name).join(" → ")}</p>
+                      {proposal.assumptions.length ? (
+                        <p>Assumes: {proposal.assumptions.join("; ")}</p>
+                      ) : null}
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void decide(proposal, true)}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void decide(proposal, false)}
+                        >
+                          Decline
+                        </button>
+                      </div>
+                    </article>
+                  ))
+                )}
+
+                {trip.messages.length ? (
+                  <>
+                    <h3>From the conversation</h3>
+                    <ul>
+                      {trip.messages.slice(-5).map((message) => (
+                        <li key={message.id}>
+                          <strong>{message.author_name ?? "someone"}</strong> (
+                          {message.source}): {message.text}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
+              </div>
+            )}
           </section>
 
           <section
@@ -124,13 +263,13 @@ export default function Home() {
           >
             <header className="ck-assistant-header">
               <h2 id="assistant-title">Ask assistant</h2>
-              <p>It can read this incident and prepare follow-ups.</p>
+              <p>It reads this trip and can propose an itinerary for approval.</p>
             </header>
             <CopilotChat
               className="ck-chat"
               labels={{
-                welcomeMessageText: "What needs attention?",
-                chatInputPlaceholder: "Ask about this incident…",
+                welcomeMessageText: "Where are we going?",
+                chatInputPlaceholder: "Ask about this trip…",
               }}
             />
           </section>

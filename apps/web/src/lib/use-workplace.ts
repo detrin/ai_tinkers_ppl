@@ -8,9 +8,9 @@ import type {
 
 import { requestFollowups as api } from "./followup-client";
 
-export function useWorkplace(incidentId: string) {
+export function useWorkplace(tripId: string) {
   const [snapshot, setSnapshot] = useState<{
-    incidentId: string;
+    tripId: string;
     status: WorkplaceStatus;
   }>();
   const [proposal, setProposal] = useState<Proposal>();
@@ -18,26 +18,26 @@ export function useWorkplace(incidentId: string) {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const sequence = useRef(0);
-  const selectedIncident = useRef(incidentId);
-  selectedIncident.current = incidentId;
+  const selectedTrip = useRef(tripId);
+  selectedTrip.current = tripId;
   const refresh = useCallback(async () => {
-    const incidentId = selectedIncident.current;
+    const tripId = selectedTrip.current;
     const request = ++sequence.current;
     setError("");
     try {
       const status = await api<WorkplaceStatus>(
-        `?incidentId=${encodeURIComponent(incidentId)}`,
+        `?tripId=${encodeURIComponent(tripId)}`,
       );
       if (
         request === sequence.current &&
-        incidentId === selectedIncident.current
+        tripId === selectedTrip.current
       )
-        setSnapshot({ incidentId, status });
+        setSnapshot({ tripId, status });
       return status;
     } catch (error) {
       if (
         request === sequence.current &&
-        incidentId === selectedIncident.current
+        tripId === selectedTrip.current
       ) {
         setSnapshot(undefined);
         setError(
@@ -55,9 +55,9 @@ export function useWorkplace(incidentId: string) {
     return () => {
       sequence.current++;
     };
-  }, [incidentId, refresh]);
+  }, [tripId, refresh]);
   const propose = useCallback(
-    async (draft: { incidentId: string; title: string; details: string }) => {
+    async (draft: { tripId: string; title: string; details: string }) => {
       try {
         const { proposal } = await api<{ proposal: Proposal }>("", {
           operation: "propose",
@@ -128,7 +128,7 @@ export function useWorkplace(incidentId: string) {
     }
   };
   const status =
-    snapshot?.incidentId === incidentId ? snapshot.status : undefined;
+    snapshot?.tripId === tripId ? snapshot.status : undefined;
   return {
     status,
     proposal,

@@ -1,7 +1,7 @@
 import React from "react";
 
 // Tool arguments arrive incrementally, before schema defaults are applied.
-export interface IncidentCardProps {
+export interface TripCardProps {
   headline?: string;
   summary?: string;
   facts?: Array<{ label?: string; value?: string } | null> | null;
@@ -17,12 +17,12 @@ export interface TimelineProps {
 
 const toneColor = { neutral: "var(--muted)", good: "#2e7d5b", attention: "var(--accent)" } as const;
 
-export function IncidentCard({ headline, summary, facts, nextSteps, tone }: IncidentCardProps) {
+export function TripCard({ headline, summary, facts, nextSteps, tone }: TripCardProps) {
   const color = tone === "good" || tone === "attention" ? toneColor[tone] : toneColor.neutral;
   return (
     <article className="ck-card" style={{ borderLeftColor: color }}>
-      <h3>{headline || "Preparing incident assessment…"}</h3>
-      <p>{summary || "Gathering incident details…"}</p>
+      <h3>{headline || "Preparing the trip summary…"}</h3>
+      <p>{summary || "Gathering trip details…"}</p>
       {!!facts?.length && (
         <dl className="ck-facts">
           {facts.map((fact, index) => (
