@@ -191,6 +191,14 @@ budget it learned earlier.
   store and the socket rooms both live in process memory.
 - **No authentication.** Anyone holding a group id can read and write it. The
   join code gates joining, nothing else.
+- **No rate limiting.** `POST /plan` hits Overpass on every call. A client in a
+  loop would get the server's address throttled or blocked under OpenStreetMap's
+  usage policy. Put a limiter in front of it before exposing this publicly.
+- **Live positions are not persisted.** They change every few seconds and are
+  stale after a restart, so they are held in memory only; clients re-report on
+  reconnect. Everything else in the store survives.
+- **The message log keeps its last 500 entries** per trip. A Slack thread can
+  run for days, and the whole store is rewritten on every save.
 
 ## Layout
 
@@ -213,5 +221,5 @@ app/
     groups.py        REST
     trips.py         Slack mapping, travellers, messages, approvals
     realtime.py      WebSocket
-tests/               47 tests, no network
+tests/               51 tests, no network
 ```

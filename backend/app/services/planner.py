@@ -79,7 +79,10 @@ async def build_plan(group: Group, request: PlanRequest) -> Plan:
         )
 
         order = _route_within_limit(walkable, limit)
-        if len(order) == 1:
+        # len(walkable) == 1 means there were no candidate places at all, so
+        # there is no nearest stop to fall back to. Leave the route empty and
+        # let the caller answer "nothing worth visiting here".
+        if len(order) == 1 and len(walkable) > 1:
             # Nothing at all is close enough. Give the single nearest stop and
             # say plainly that it is further than asked, rather than pretending.
             nearest = min(range(1, len(walkable)), key=lambda j: walkable[0][j])

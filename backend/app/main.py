@@ -51,10 +51,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Browsers reject "*" together with credentials, so asking for both gives a
+# CORS setup that silently does not do what it says. Credentials are only
+# offered once the origins are named.
+_wildcard_origin = "*" in settings.cors_origins
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),
-    allow_credentials=True,
+    allow_credentials=not _wildcard_origin,
     allow_methods=["*"],
     allow_headers=["*"],
 )
