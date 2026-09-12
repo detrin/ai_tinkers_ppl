@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "channels": [
+    {
+      "name": "trip-planner",
+      "displayName": "Trip Planner",
+      "providers": {
+        "slack": {
+          "env": {
+            "botToken": "INTELLIGENCE_CHANNEL_TRIP_PLANNER_SLACK_BOT_TOKEN",
+            "signingSecret": "INTELLIGENCE_CHANNEL_TRIP_PLANNER_SLACK_SIGNING_SECRET"
+          }
+        }
+      }
+    }
+  ]
+}
