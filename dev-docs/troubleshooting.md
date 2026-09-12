@@ -1,5 +1,35 @@
 # Troubleshooting
 
+## SomeJoy: wrong UI, occupied port, or stalled Slack turn
+
+- **Wrong UI:** `8000/ui/` is the built map dashboard; `5173` is its Vite
+  development version. `3100` is the separate Next.js itinerary/follow-up app.
+  Rebuild with `npm run build --prefix frontend` after frontend changes, then
+  refresh. A non-reloading Python process also needs restarting for backend changes.
+- **EADDRINUSE:** inspect the owner before starting or stopping anything:
+
+  ```bash
+  lsof -nP -iTCP:8000 -sTCP:LISTEN
+  lsof -nP -iTCP:3000 -sTCP:LISTEN
+  curl --max-time 5 http://127.0.0.1:8000/health
+  ```
+
+  An occupied port does not prove the right version is healthy. Stop only the
+  confirmed obsolete process in its own terminal; avoid blanket kill commands.
+- **Demo stability:** use `npm run start --workspace channel`, not watch mode.
+  One listener per managed Channel, including teammates' machines. Restart the
+  existing listener after changing code/environment; do not leave a second one.
+- **Backend unavailable:** check `TRIP_API_URL` from the listener's machine.
+  `127.0.0.1` points to that machine, not another teammate's laptop.
+- **Slow turn:** first try `@trip-planner Look up group CODE.` with a real code.
+  Inspect diagnostic timing/stage and tool-status output. Online status proves
+  activation, not successful model, backend, Exa, or Slack delivery.
+- **Write succeeded but reply failed:** refresh Agent workspace and inspect the
+  saved record before resending. Expense receipts reduce extra model work, but
+  not every write is idempotent and replaying prompts can create duplicates.
+
+See [the SomeJoy demo](somejoy-demo.md) for isolated tests and expected results.
+
 Ordered by how often each one wastes an afternoon. Every entry here has already
 cost somebody real time.
 

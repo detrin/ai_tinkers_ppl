@@ -1,89 +1,65 @@
-# services/agent — Trip Agent
+# Advisory Trip Agent
 
-The Trip Agent researches, validates, and proposes group trip itineraries.
-It's built on [Pydantic AI](https://ai.pydantic.dev/), not a hand-rolled
-loop — Pydantic AI owns the tool-calling loop, JSON schema generation (from
-type hints + docstrings), and model provider selection. This service only
-supplies the domain layer.
+A Pydantic AI agent for travel research, candidate places, and proposed
+itineraries. The normal SomeJoy flow calls it **in-process** from the backend's
+`POST /api/groups/{id}/ask` endpoint. No separate server is required.
 
-Pydantic AI was chosen over the OpenAI Agents SDK / LangGraph / CrewAI
-because it has first-party [AG-UI](https://docs.ag-ui.com/) support — the
-same protocol `packages/agent-core/src/agent.ts` already documents as the
-intended way to swap a non-CopilotKit agent into `apps/channel`/`apps/web`
-(`HttpAgent` from `@ag-ui/client`). LangGraph/CrewAI/Google ADK also have
-AG-UI adapters but are heavier multi-agent orchestration frameworks than a
-single tool-calling loop needs; the OpenAI Agents SDK has no AG-UI support
-(open, unresolved requests on both repos as of writing).
+This is distinct from the CopilotKit Slack coordinator and the backend's
+deterministic specialist handlers.
 
-## Layout
+## Tools and state
 
-```
-src/agent/
-  trip_agent.py       System prompt + tool wiring + plan()/ask(). The domain layer.
-  storage.py          TripStore protocol + InMemoryTripStore -- candidates,
-                       itineraries, and per-trip_id conversation history for
-                       ask(). Swap for a real DB once services/api owns the
-                       trips schema.
-  config.py           Settings, loaded from the repo-root .env.
-  cli.py              `uv run agent "<constraints>"` for local runs.
-  api.py              AG-UI endpoint (Starlette) -- `uv run uvicorn agent.api:app`.
-  tools/
-    exa.py            search_web — qualitative web discovery.
-    google_maps.py    find_places / get_place_details / route — the
-                       factual validator (Places API (New) + Routes API).
-tests/                One test module per source module; tools are tested
-                       against a mocked httpx, the full loop against
-                       Pydantic AI's built-in `test` model — no network
-                       calls or API keys needed anywhere.
-```
+- `search_web`: optional Exa discovery, enabled with `EXA_API_KEY`.
+- `find_places`, `get_place_details`, `route`: optional Google Maps tools,
+  enabled with `GOOGLE_MAPS_API_KEY`.
+- `save_candidates`, `publish_proposal`: write to the agent's own
+  in-memory `TripStore`.
 
-The tool layer is the crucial boundary: `search_web` is for discovery and
-qualitative context, `find_places` / `get_place_details` / `route` are for
-facts (existence, hours, price, travel time). The instructions in
-`trip_agent.py` tell the model to validate anything search_web surfaces
-before including it in a plan, so it can't invent logistics from a blog
-post. Tool failures raise `pydantic_ai.ModelRetry` instead of crashing the
-run, so the model sees the failure and can adapt.
+`ask()` keeps per-trip conversation history for follow-up questions.
+`plan()` is a separate planning call and does not share that conversation
+history. Restarting loses agent history, candidates, and proposals.
 
-`search_web` and the Maps tools are only registered when their API key is
-set (`EXA_API_KEY`, `GOOGLE_MAPS_API_KEY` in the repo-root `.env`) — same
-pattern as `packages/agent-core`'s search capability. `save_candidates` and
-`publish_proposal` are always registered; they write into the in-memory
-`TripStore` for now.
+Important: `publish_proposal` does **not** publish an active backend map plan,
+write a backend itinerary approval record, or post a Slack message. Bridging
+that store into the shared dashboard is remaining work. Search evidence and
+model instructions do not guarantee verified hours, prices, or accessibility.
 
-Model provider comes from the repo-root `.env`'s `AGENT_MODEL_PROVIDER`/
-`AGENT_MODEL` (falling back to the shared `MODEL_PROVIDER`/`MODEL` that
-`apps/channel`/`apps/web` use if unset), mapped in `config.py` to a Pydantic
-AI `"provider:model"` string. Currently `openrouter` /
-`thinkingmachines/inkling-small`. `openai`, `anthropic`, and `deepseek` are
-also wired up — extend `_PROVIDER_ENV_VARS` there before using another one.
+## Configuration
 
-`plan()` produces a full itinerary in one shot. `ask()` is a running
-conversation per `trip_id` -- each call's messages are appended to
-`TripStore`, so a follow-up ("how much does that cost?") sees the prior
-answer instead of starting fresh. `plan()` does not share that history.
+The agent loads the repository root `.env`:
 
-## Run it
+| Setting | Purpose |
+| --- | --- |
+| `AGENT_MODEL_PROVIDER` | Optional override of `MODEL_PROVIDER` |
+| `AGENT_MODEL` | Optional override of `MODEL` |
+| Selected provider key | Required for a live model run |
+| `EXA_API_KEY` | Optional web discovery |
+| `GOOGLE_MAPS_API_KEY` | Optional Places/Routes tools |
+
+Configuration maps `openai`, `openrouter`, `anthropic`, and `deepseek`
+to their provider keys. Installed provider dependencies and model availability
+still need verification for your chosen provider. OpenRouter uses
+`OPENROUTER_API_KEY`; it does not require an OpenAI key.
+Model choice comes from local configuration, not a fixed model in this README.
+
+## Run independently (optional)
+
+Python 3.12+ and uv, from the repository root:
 
 ```bash
 cd services/agent
 uv sync
-uv run agent "Plan Saturday afternoon for six of us in Prague, food + activity, under EUR 40"
+uv run agent "Plan Saturday afternoon in Prague, food and museums, under EUR 40"
 ```
 
-Requires `OPENAI_API_KEY` in the repo-root `.env`. `EXA_API_KEY` and
-`GOOGLE_MAPS_API_KEY` are optional — without them the agent runs with a
-smaller tool set and a warning in the logs.
-
-### As an AG-UI service
+For the standalone AG-UI endpoint, use a different port from the trip backend:
 
 ```bash
-uv run uvicorn agent.api:app --reload
+uv run uvicorn agent.api:app --host 127.0.0.1 --port 8001
 ```
 
-Exposes `POST /` speaking the AG-UI protocol, so an `HttpAgent` from
-`@ag-ui/client` (JS) can point at it directly — see the swap-out comment in
-`packages/agent-core/src/agent.ts`.
+This exposes the agent's `POST /` protocol endpoint. The main demo does not
+point its Slack coordinator at this endpoint; it uses the backend bridge.
 
 ## Test
 
@@ -91,24 +67,17 @@ Exposes `POST /` speaking the AG-UI protocol, so an `HttpAgent` from
 uv run pytest
 ```
 
-No API keys required; every external call is mocked, and the end-to-end
-loop test uses Pydantic AI's built-in `test` model (`Agent('test')`).
+The agent suite uses mocked external calls/test models. Root `npm run verify`
+does not run it. Live credentials and provider behavior need separate checks.
 
-## Used by backend/
+## Layout
 
-`backend/` (a separate FastAPI project) installs this as an editable
-dependency (`-e ../services/agent` in `backend/requirements.txt`) and calls
-`TripAgent.ask()` in-process from `POST /api/groups/{id}/ask` — see
-`backend/app/services/agent_bridge.py` and `backend/README.md`. `group_id`
-is passed straight through as `trip_id`, so the group *is* the session; no
-separate agent-side session concept exists.
+- [trip_agent.py](src/agent/trip_agent.py): prompt, tool wiring, ask/plan.
+- [storage.py](src/agent/storage.py): in-memory candidates, proposals, history.
+- [config.py](src/agent/config.py): provider/environment settings.
+- [tools](src/agent/tools): Exa and Google Maps adapters.
+- [api.py](src/agent/api.py): optional AG-UI endpoint.
+- [backend bridge](../../backend/app/services/agent_bridge.py): normal integration.
 
-## Not built yet
-
-- `services/api` — the HTTP layer (`POST /trips/:id/plan`, auth, webhook
-  endpoints) that would front this agent for Slack and web, if the AG-UI
-  path above and the backend/ bridge above don't end up covering that need.
-- A real `TripStore` backed by the `trips` / `candidate_places` /
-  `itinerary_options` tables from the architecture doc (currently in-memory
-  only -- conversation history and candidates are gone on restart).
-- `publish_proposal` pushing to Slack/web instead of just persisting.
+Next steps: durable shared storage, publish/read-back integration with backend
+proposals, and end-to-end tests proving that advisory results reach the map.

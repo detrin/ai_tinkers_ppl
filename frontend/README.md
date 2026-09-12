@@ -1,4 +1,4 @@
-# Group City Route — frontend
+# SomeJoy map dashboard — frontend
 
 React 19 + TypeScript + Vite. A full-screen map where a group forms around one
 city, everyone's position stays live, and the route appears for all of them at
@@ -9,7 +9,7 @@ once.
 The backend must be running first (see `../backend`).
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
@@ -40,8 +40,30 @@ Then everything is on <http://127.0.0.1:8000>, with the UI at `/ui/`.
    back to the setup screen so you can start your own group or join another.
    The rest of the group sees you go straight away.
 
-Each browser tab is its own person: the session lives in `sessionStorage`, so a
-refresh keeps you in the group but a new tab joins as somebody else.
+The session lives in `sessionStorage`, so refresh keeps you in the group.
+Use separate browser profiles/private sessions to reliably demo different
+travellers; a duplicated tab can inherit the original session.
+
+## Agent workspace
+
+After joining, the **Agent workspace** panel shows shared records created
+through Slack. Use **Refresh** after a Slack operation to read back current state.
+
+- **Expenses & splits:** review proposed amounts, approve/decline, and see
+  balances from approved expenses only. This does not transfer money. Use EUR
+  for the demo; the current UI/ledger does not handle mixed currencies safely.
+- **Group decisions:** vote on a Slack-created poll as the registered traveller.
+  Closing polls is currently an API operation, not a dashboard control.
+- **Media:** filename/category/location metadata, not uploaded photo previews.
+- **Packing assistant:** generate a list on demand. It is local UI state, not
+  the saved result of a previous Slack packing prompt.
+- **Trip memories:** confirmed saved entries created by the Slack tool.
+
+Search results stay in Slack; there is no dashboard research feed. Itinerary
+proposal review lives in the separate [Next.js workspace](../apps/web/README.md)
+at port 3100. This map's **Build route** publishes directly.
+
+Use [the demo script](../dev-docs/somejoy-demo.md) for copy-paste Slack prompts.
 
 ## How it is put together
 
@@ -54,6 +76,7 @@ src/
     GroupPanel.tsx         members, distances, presence
     RoutePanel.tsx         interests, stop count, itinerary
     InterestChips.tsx
+    SpecialistsPanel.tsx   expenses, polls, media, packing, memories
   lib/
     api.ts                 typed REST client
     types.ts               mirrors the backend Pydantic models
@@ -71,6 +94,9 @@ them down, which is what keeps a dragged dot from jumping while you hold it.
 
 ## Notes
 
+- Use Node.js 22+ in this directory too. After pulling frontend changes, rebuild
+  `dist/` to update the backend-served UI, then refresh the browser. Vite dev
+  mode hot-reloads source changes instead.
 - Map tiles come from OpenStreetMap. For anything beyond a demo, use a tile
   provider you have an agreement with.
 - `npm run typecheck` runs TypeScript alone; `npm run build` runs it and then

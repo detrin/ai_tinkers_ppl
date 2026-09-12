@@ -1,9 +1,11 @@
 # Developer resources
 
-Start with the [hackathon homepage](../README.md), choose a [template](../README.md#templates), and give your coding agent the [overview](../hackathon-overview.md), [rules](../hackathon-rules.md), and [sponsor tool guide](../using-sponsor-tools.md).
+Start with the [SomeJoy README](../README.md) and [implementation/handoff guide](../GROUP_TRAVEL_AGENTS.md). The retained template guides describe infrastructure; use the SomeJoy demo below for this project's current behavior. Coding agents should also read the [overview](../hackathon-overview.md), [rules](../hackathon-rules.md), and [sponsor tool guide](../using-sponsor-tools.md).
 
 | Doc | When you need it |
 |---|---|
+| [SomeJoy demo](somejoy-demo.md) | Copy-paste Slack prompts and the expected dashboard result |
+| [Agent implementation guide](../GROUP_TRAVEL_AGENTS.md) | Implemented workflows, state boundaries, source files, remaining work |
 | [Sponsor tool guide](../using-sponsor-tools.md) | Authentication, configuration, and a first working call for each featured sponsor |
 | [Auth0 protected API recipe](auth0/README.md) | Optional machine-to-machine authorization reference for a protected local API |
 | [Channels screenshot walkthrough](channels-sdk-walkthrough/README.md) | Intelligence, Slack installation, runtime, and a verified native-card conversation |

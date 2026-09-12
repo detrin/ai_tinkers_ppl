@@ -1,424 +1,166 @@
-# Group Travel Agents: Implementation Guide
+# SomeJoy agents — implementation and handoff
 
-This document is the handoff specification for building the group-travel project
-on another machine. It describes the product, agent responsibilities,
-architecture, setup, and recommended implementation order.
+This is the current implementation map, not a promise that every planned agent
+is complete. Read the [root README](README.md) for installation and
+[the demo script](dev-docs/somejoy-demo.md) for live checks.
 
-Before changing the repository, read:
-
-- `AGENTS.md`
-- `hackathon-overview.md`
-- `hackathon-rules.md`
-- `using-sponsor-tools.md`
-- `apps/web/README.md`
-- `apps/channel/README.md`
-- `.agents/skills/build-channels-agent/SKILL.md` before editing `apps/channel/`
-
-## Product goal
-
-Build a shared group-travel workspace that operates in both Slack and a web
-application.
-
-People discuss a trip naturally in Slack. The system extracts preferences,
-constraints, decisions, photos, and expenses from the discussion. The same
-structured trip state appears in the web application, where the group can
-review plans, approve changes, and see the current itinerary and budget.
-
-The surrounding context must matter:
-
-- Slack supplies conversation history, participants, uploaded files, and group
-  decisions.
-- The web app supplies the selected trip, structured records, approval UI, and
-  a persistent overview.
-- The agent should not require users to copy the entire Slack discussion into a
-  separate chat prompt.
-
-## Initial agent team
-
-Start with three specialist workflows and one coordinator. They may initially
-share the same model and process. Do not create separate autonomous services
-unless independent execution or state becomes necessary.
-
-### Trip Coordinator
-
-The user-facing entry point in Slack and the web app.
-
-Responsibilities:
-
-- Read the active Slack thread or selected web trip.
-- Identify travelers, preferences, constraints, and confirmed decisions.
-- Distinguish facts from suggestions and missing information.
-- Route itinerary, media, and expense work to the appropriate specialist.
-- Present results and request approval for consequential changes.
-- Never claim that a booking, payment, or external write happened without a
-  verified result.
-
-Example request:
+## Architecture and ownership
 
 ```text
-@trip-planner summarize our constraints and tell us what remains undecided.
+Slack thread -> apps/channel (model + typed tools) -> backend REST API
+                                                      |
+frontend map/dashboard <------- REST + WebSocket ------+
+apps/web itinerary workspace <------ REST -------------+
+                                                      |
+                                      /ask -> services/agent
+apps/web approved follow-up -> server adapter -> Ambiguous AI
 ```
 
-### Itinerary Planner
+The shared trip backend owns groups, members, active plans, itinerary proposals,
+media metadata, expenses, polls, and memories. Its JSON snapshot is separate
+from the advisory agent's in-memory conversation/candidate/proposal store.
+Ambiguous stores follow-up tasks, not these trip records.
 
-Responsibilities:
+There is one Slack coordinator with specialist tools and an additional
+Pydantic AI advisory agent. Adding a specialist does not require another
+process. The map dashboard and Next.js trip workspace are different apps.
 
-- Produce a day-by-day plan using dates, arrival times, budget, interests,
-  accessibility needs, and existing reservations.
-- Detect scheduling and budget conflicts.
-- Produce at least one alternative when constraints cannot all be satisfied.
-- Return a structured proposal with estimated costs and explicit assumptions.
-- Save a proposal only after approval.
+## Implemented tools and visible results
 
-### Travel Media Organizer
+| Workflow | Slack tool | Backend/UI result |
+| --- | --- | --- |
+| Group setup | `create_travel_group`, `lookup_travel_group` | Real group and join code; travellers join separately in the map UI |
+| Thread context | `read_thread` | Reads available Slack history; not automatic persistence of messages/preferences |
+| Planner | `propose_trip_itinerary` | Shared proposed itinerary; approve/decline in the Next.js workspace |
+| Research agent | `ask_travel_agent` | Advisory answer from `/api/groups/{id}/ask`; no active-map publication |
+| Search | `search_web` (with Exa key) | Source links in Slack; no saved dashboard search feed |
+| Local guide | `prepare_local_guide_search` | Builds a trip-aware query; Exa must then be called for current evidence |
+| Media organizer | `organize_travel_media` | Filename/category/note/location/day record, listed under Media |
+| Money split | `propose_trip_expense` | Equal-split proposal and Slack receipt; dashboard approval changes balances |
+| Consensus | `create_consensus_poll` | Persistent poll; registered members vote in dashboard |
+| Packing | `build_packing_list` | Generated personal/shared list; dashboard can generate a separate list |
+| Trip memory | `add_trip_memory` | Confirmed text entry with optional known media IDs, listed in dashboard |
 
-Responsibilities:
+The inherited `propose_action` approval card records a decision; it is not a
+general executor, a payment tool, or an itinerary-approval endpoint.
 
-- Process photos uploaded through Slack or the web app.
-- Classify media as a landmark, food, group photo, ticket, booking confirmation,
-  receipt, or other.
-- Extract visible text and relevant metadata when possible.
-- Associate media with a trip, itinerary day, location, and activity.
-- Flag uncertain classifications for human review.
-- Never expose private images outside the selected group workspace.
+### Planning boundaries
 
-### Budget and Expense Agent
+- The map's direct Build route operation calls `POST /plan` and updates the
+  active plan immediately. It does not wait for itinerary-proposal approval.
+- `POST /proposals` creates a proposal. Approving that proposal publishes its
+  plan; declining it does not. The Next.js app at port 3100 exposes this UI.
+- Stored traveller preferences/constraints can influence ranking and mobility
+  limits. Mentioning a preference in Slack does not automatically store it in
+  the corresponding backend member record.
+- Routes are ordered stops, not a full day-by-day scheduling or booking engine.
+  Diet, budget, opening hours, and accessibility still need verification.
+- ORS provides the pedestrian path; OSRM's default demo profile is driving.
+  Fallback walking estimates are not verified accessible routes.
 
-Responsibilities:
+### Money split boundaries
 
-- Convert approved receipt extraction into structured expenses.
-- Categorize spending and associate it with a trip or itinerary activity.
-- Record who paid and which travelers participated.
-- Calculate splits and balances deterministically in application code.
-- Compare planned and actual costs with individual and group budgets.
-- Require review before saving an expense extracted from an image.
+Payer and participants must be registered group members. Amounts are divided
+equally in integer cents; remainder cents go to participants in order.
+Only approved expenses affect balances. Approval records an accounting decision,
+not a money transfer. Custom weights, debt settlement, refunds, and currency
+conversion are not implemented. Keep each demo group in EUR; mixed currencies
+are not separated in current totals.
 
-## Later agent ideas
+The expense tool posts the real saved proposal as a Slack receipt and avoids an
+extra model explanation once that receipt completes. A delivery failure after
+saving is still possible. The same prompt resent later can create a duplicate.
 
-Add these only after the initial end-to-end workflow works:
+### Media, packing, and memory boundaries
 
-- Consensus Agent: extracts options, creates polls, finds disagreements, and
-  records final decisions.
-- Destination Research Agent: researches current activities, opening hours,
-  transport, weather, and events with inspectable sources.
-- Reservation Organizer: extracts confirmation details and detects itinerary
-  conflicts without purchasing anything.
-- Packing Agent: creates personal and shared packing lists from itinerary and
-  weather context.
-- Local Guide Agent: provides in-trip alternatives and contextual guidance.
-- Trip Memory Agent: builds a post-trip timeline and organized photo story.
+Media classification uses explicit category or filename/note keywords. It does
+not download Slack attachments, store image bytes, inspect photos, OCR receipts,
+or automatically turn receipts into expenses. Packing uses supplied weather
+text, not a weather API, and is not persisted. Memories require confirmed events,
+not an invented recap.
 
-## Target architecture
+### Search and advisory agent boundaries
 
-```text
-Slack workspace                          Web browser
-      |                                       |
-      v                                       v
-apps/channel                            apps/web
-      |                                       |
-      +---------- shared trip API ------------+
-                          |
-                          v
-                 persistent data store
-                          |
-       +------------------+------------------+
-       |                  |                  |
-     trips             messages           media
-     travelers         decisions          expenses
-     itinerary         approvals          balances
-```
+Exa is optional. Without its key, the search tool is not registered. Local-guide
+query preparation alone is not a search. Sources returned in Slack are not
+automatically saved into dashboard records.
 
-`packages/agent-core` remains the shared model, prompt, schemas, and common
-capability layer. Surface-specific tools belong in their respective apps.
+The advisory agent can research and save candidates/proposals in its own
+`TripStore`. That store is in-memory and is not the backend Group store.
+Its `publish_proposal` name does not mean a map itinerary or Slack message was
+published. Google Maps tools are optional and require separate credentials.
+Model output is not proof a venue is open or a booking exists.
 
-The Slack worker and web server are separate processes:
+### Ambiguous boundary
 
-- `apps/channel` is a long-running Channels runtime. It cannot be hosted as a
-  short-lived serverless function.
-- `apps/web` is the Next.js application, API, and web/mobile agent runtime.
-- Both must use the same persistent trip data rather than separate sample state.
+The Next.js app has an approved follow-up task create/read-back workflow.
+Raw Ambiguous MCP tools are disabled for the current Slack agent; configuring
+its key does not turn Slack into an unrestricted workplace agent. Keep this
+integration separate from itinerary and expense approval.
 
-## Core data model
+## Source map
 
-A first implementation should support these records:
-
-```text
-Trip
-- id
-- name
-- destination
-- startDate
-- endDate
-- status
-- slackWorkspaceId
-- slackChannelId
-- slackThreadId
-
-Traveler
-- id
-- tripId
-- displayName
-- slackUserId (optional)
-- budget
-- preferences
-- constraints
-
-TripMessage
-- id
-- tripId
-- source
-- sourceMessageId
-- authorId
-- text
-- createdAt
-
-ItineraryProposal
-- id
-- tripId
-- status: proposed | approved | declined
-- days and activities
-- estimatedCost
-- assumptions
-
-MediaItem
-- id
-- tripId
-- sourceFileId or storage reference
-- category
-- itineraryDay
-- extractedText
-- confidence
-- reviewStatus
-
-Expense
-- id
-- tripId
-- mediaItemId (optional)
-- payerId
-- participants
-- amount
-- currency
-- category
-- status: proposed | approved | declined
-```
-
-Use Slack's workspace, channel, and thread identifiers to map a conversation to
-one trip. Do not rely on channel names as stable identifiers.
-
-## Slack behavior
-
-The starter already supports managed Slack delivery through CopilotKit
-Channels. Preserve this routing pattern:
-
-1. `onMention` subscribes the thread and runs the agent.
-2. `onMessage` runs the agent only for an already subscribed thread.
-3. `read_thread` calls `thread.getMessages()` to obtain available conversation
-   history.
-4. Tools return structured data to the agent and may post native Slack UI.
-5. Approval buttons report or execute only the behavior explicitly implemented
-   at the write boundary.
-
-Managed Slack supports mentions, messages, reactions, buttons, and selects. It
-does not deliver slash commands or modal submissions. Use messages such as:
-
-```text
-@trip-planner summarize this trip thread and show the current plan.
-```
-
-Do not design the MVP around `/trip-plan` or a Slack modal.
-
-The current Channel code is `trip-planner`. Keep the following aligned:
-
-- `.copilotkit/channels.json`
-- root `.env` variable `CHANNEL_CODE`
-- the `createChannel({ name })` value loaded by `apps/channel`
-
-Never commit Slack tokens, signing secrets, model keys, or Intelligence keys.
-
-## Web behavior
-
-Replace the sample incident domain with a trip workspace. The page should show:
-
-- Active trip and planning status
-- Travelers and their constraints
-- Slack discussion summary or recent synchronized messages
-- Proposed and approved itinerary
-- Media categories
-- Budget and balances
-- Unresolved decisions
-
-Preserve the useful starter patterns:
-
-- Page context is provided to the agent.
-- Frontend tools can select a trip and prepare proposals.
-- Generative UI renders structured results.
-- Consequential writes occur only behind an explicit approval boundary.
-- The UI displays the real saved record ID or verified updated state.
+| Area | Start here |
+| --- | --- |
+| Slack lifecycle and fast lookup | [channel.tsx](apps/channel/src/channel.tsx) |
+| Slack trip/specialist tools | [trip-tools.ts](apps/channel/src/trip-tools.ts) |
+| Slack run lifecycle | [agent.ts](apps/channel/src/agent.ts) |
+| Shared model factory and prompt | [agent-core](packages/agent-core/src/agent.ts), [prompt](packages/agent-core/src/prompt.ts) |
+| Backend group schemas and state | [models.py](backend/app/models.py), [store.py](backend/app/store.py) |
+| Specialist REST handlers | [specialists.py](backend/app/routers/specialists.py) |
+| Thread mapping/preferences/proposals API | [trips.py](backend/app/routers/trips.py) |
+| Route planning | [planner.py](backend/app/services/planner.py) |
+| Advisory agent bridge | [agent_bridge.py](backend/app/services/agent_bridge.py) |
+| Advisory agent | [services/agent](services/agent/README.md) |
+| Expense/poll/media/packing/memory UI | [SpecialistsPanel.tsx](frontend/src/components/SpecialistsPanel.tsx) |
+| Next.js trip controls | [trip-control.tsx](apps/web/src/components/trip-control.tsx) |
+| Ambiguous write boundary | [followups.ts](apps/web/src/lib/server/followups.ts) |
 
 ## Cross-surface synchronization
 
-The current starter does not synchronize Slack and web state. Add a shared
-storage and API layer.
+These backend endpoints exist but still need automatic Slack wiring:
 
-Recommended production-oriented option: Supabase/Postgres. A local SQLite
-implementation is acceptable for an offline prototype, but both running
-processes must access the same durable database.
+- Thread-to-trip mapping keyed by workspace, channel, thread ID.
+- A message log with caller-supplied source-message deduplication.
+- Member preference/constraint updates.
 
-Minimum API operations:
+Current Slack tools explicitly create/look up groups by ID/code and call shared
+specialist endpoints. They do not automatically identify every Slack speaker as
+a registered traveller, archive the whole thread, or apply every stated constraint.
 
-```text
-getTrip(tripId)
-findTripBySlackThread(workspaceId, channelId, threadId)
-createTripFromSlackThread(...)
-upsertTravelerPreference(...)
-appendSlackMessage(...)
-createItineraryProposal(...)
-approveItineraryProposal(...)
-createMediaClassification(...)
-createExpenseProposal(...)
-approveExpense(...)
-```
+Use the same backend URL on both surfaces. On another machine,
+`127.0.0.1` means that machine, not the original laptop. Share a deployed
+backend URL securely, or run your own backend with your own trip data.
+Do not copy the team's live secrets or private state into Git.
 
-Idempotency is required for Slack messages, media, and approvals. Replayed
-events must not create duplicate records.
+## Remaining work, in practical order
 
-## Suggested MVP demonstration
+1. **Reliable identity/context sync:** map Slack thread and user IDs to trips
+   and members, archive source messages, extract preferences with provenance and
+   explicit correction/confirmation.
+2. **Write safety:** request-level idempotency across specialist writes,
+   actionable user-facing errors, retry/read-back recovery, and delivery tracing.
+3. **Persistent shared agent state:** database-backed groups and conversations;
+   connect advisory candidates/proposals to the same approval and map pipeline.
+4. **Planning completeness:** multi-day timing, verified hours/costs, explicit
+   accessibility/diet constraints and conflict resolution.
+5. **Real media pipeline:** permission-scoped attachment downloads, object storage,
+   vision/OCR with uncertainty, receipt review before proposing expenses.
+6. **Expense completeness:** currency-aware ledgers, non-equal splits, settlement
+   suggestions, and edit/audit flows (no payment execution without authorization).
+7. **Production readiness:** authentication, per-trip authorization, privacy and
+   retention controls, multi-worker persistence, deployment and observability.
+8. **UX polish:** itinerary approval in the map dashboard, saved search candidates,
+   shared packing checklist, poll closing, and cross-surface status feedback.
 
-1. Several travelers discuss a Prague weekend in a Slack thread.
-2. Their messages mention different budgets, arrival times, food preferences,
-   and activities.
-3. Someone mentions `@trip-planner` and asks for a plan.
-4. The Coordinator reads the thread and extracts structured constraints.
-5. The Planner creates an itinerary proposal and renders a native Slack card.
-6. The same trip and proposal appear in the web dashboard.
-7. A traveler uploads a receipt photo.
-8. The Media Organizer classifies it and extracts a proposed expense.
-9. A human approves the expense.
-10. The Budget Agent updates the group balance in Slack and the web dashboard.
+## Working on another machine
 
-If time is limited, stop after step 6. That is already a complete cross-surface
-agent workflow.
+Follow the root quickstart; request secrets privately or use your own accounts.
+Use an independent managed Channel/project while developing if another teammate
+is already serving the team's Channel. Two listeners can compete for deliveries.
 
-## Implementation order
-
-### Milestone 1: preserve and verify the starter
-
-- Configure OpenRouter and the managed Slack Channel.
-- Run the existing Slack agent.
-- Verify a real mention receives a response.
-- Verify an unmentioned follow-up in the subscribed thread receives a response.
-- Verify an unrelated unmentioned conversation remains silent.
-- Run `npm run typecheck` and `npm run verify`.
-
-### Milestone 2: establish shared trip state
-
-- Add the database schema and server-side data access layer.
-- Replace incident sample records with trips and travelers.
-- Add a Slack thread-to-trip mapping.
-- Expose recent Slack messages and structured constraints in the web app.
-
-### Milestone 3: Coordinator and Planner
-
-- Replace incident prompts and schemas with travel equivalents.
-- Add tools for reading and updating trip state.
-- Add a native Slack trip/itinerary component.
-- Add a web itinerary component.
-- Add proposal, approval, decline, and idempotency tests.
-
-### Milestone 4: photos and expenses
-
-- Accept Slack or web image metadata through a controlled server path.
-- Classify images and store only authorized references.
-- Extract receipt fields into a proposal, not a final expense.
-- Approve or decline the expense through native UI.
-- Calculate splits in deterministic code and display the updated balances.
-
-### Milestone 5: deployment and demo hardening
-
-- Deploy the Next.js app and shared database.
-- Deploy `apps/channel` to a persistent Node.js host.
-- Store all secrets in the host's secret manager.
-- Test failures, cancellation, duplicated Slack delivery, and model errors.
-- Document inherited starter code separately from hackathon-created work.
-- Prepare the two-minute demo using one complete, repeatable scenario.
-
-## Environment configuration
-
-Use a root `.env` locally. Never commit it.
-
-```dotenv
-MODEL_PROVIDER=openrouter
-OPENROUTER_API_KEY=replace-locally
-MODEL=deepseek/deepseek-v4-flash-0731
-
-CHANNEL_CODE=trip-planner
-INTELLIGENCE_API_KEY=replace-locally
-LOG_LEVEL=debug
-```
-
-The selected OpenRouter model must support tool calling. Model availability and
-pricing can change, so verify the current catalog before relying on a slug.
-
-Slack setup credentials are temporary. After the CLI reports the adapter as
-attached and says they are removable, delete the bot-token and signing-secret
-variables from local `.env`.
-
-## Local run commands
-
-Install and verify:
-
-```bash
-npm ci
-npm run check-env
-npm run typecheck
-npm run verify
-```
-
-Run the web app:
-
-```bash
-npm run dev:web
-```
-
-Run the Slack worker in another terminal:
-
-```bash
-npm run dev:slack
-```
-
-Check the managed Channel:
-
-```bash
-npx --yes copilotkit@4.9.60 channels status --json
-```
-
-Use the repository's selected CLI version when it changes rather than assuming
-`4.9.60` remains current forever.
-
-## Completion criteria
-
-The MVP is complete only when all of these are demonstrated:
-
-- A real Slack mention gets a model-backed response.
-- Earlier Slack messages materially change that response.
-- A native Slack travel component renders.
-- An unmentioned follow-up works only in a subscribed conversation.
-- A trip created or updated through Slack appears in the web app.
-- A web approval changes the same shared trip state Slack reads.
-- A declined action makes no write.
-- A replayed event does not create duplicates.
-- The repository type-checks and relevant tests pass.
-- The demo distinguishes sample data, proposed actions, and actual persisted
-  results.
-
-## Safety and privacy
-
-- Obtain consent before ingesting a private group conversation or its files.
-- Store the minimum Slack message and image data necessary for the trip.
-- Keep workspace and trip data isolated from other groups.
-- Never expose provider credentials to the browser or model prompt.
-- Require approval before bookings, payments, messages to third parties, or
-  persistent expense writes.
-- Treat OCR and image classifications as uncertain until reviewed.
-- Provide a way to delete synchronized messages, images, and trip records.
-
+Do not overwrite `.env`, commit state snapshots, or replace pinned SDK versions
+casually. Read AGENTS.md and the Channels skill before Slack changes.
+Run root verification, frontend build, backend tests, and the advisory-agent
+suite for changes affecting those components. Finish with a real Slack mention
+and verify the actual saved record in the UI/API; offline tests are not enough.

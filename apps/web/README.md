@@ -1,4 +1,4 @@
-# An agent inside your web app
+# SomeJoy — optional Next.js trip workspace
 
 **OpenAI + CopilotKit React + Ambiguous AI**
 
@@ -6,11 +6,15 @@ The web surface of the group trip planner. It opens a trip by join code, shows t
 
 [![Web app agent demo](../../assets/demos/web.gif)](../../assets/demos/web.mp4)
 
-_Ask for a follow-up, approve it, and reload to find the saved task in Ambiguous. Preview at 3× speed; click for the full MP4._
+_Inherited starter demo, not a recording of the current SomeJoy trip UI._
+
+This app runs on port **3100**. The map dashboard at **8000/ui/** (or Vite
+port **5173**) is a different app in `frontend/`. Expenses, polls, media,
+packing, and memories are displayed there, not in this workspace.
 
 ## Get started
 
-Complete the [root clone/install steps](../../README.md#get-started). Configure `.env` with [OpenAI](../../using-sponsor-tools.md#openai) and [Ambiguous AI](../../using-sponsor-tools.md#ambiguous-ai):
+Complete the [root clone/install steps](../../README.md#get-started). Configure a model provider in `.env`. [Ambiguous AI](../../using-sponsor-tools.md#ambiguous-ai) is optional and needed only for its follow-up record flow:
 
 ```dotenv
 MODEL_PROVIDER=openai
@@ -23,7 +27,7 @@ Choose an OpenAI model your account can use. Use a demo workspace you control fo
 
 To add managed conversation persistence, use the [official Intelligence onboarding prompt](../../README.md#copilotkit-onboarding) with `apps/web` as the selected app. It connects this existing Next.js/CopilotKit app; keep the Ambiguous record workflow and page approval. Saving a task in Ambiguous and persisting a conversation in Intelligence are separate capabilities.
 
-To use OpenRouter, follow the [shared provider settings](../../using-sponsor-tools.md#openrouter): set `MODEL_PROVIDER=openrouter`, `OPENROUTER_API_KEY`, and a `MODEL` slug with tool support. Keep the Ambiguous workspace key; an OpenAI key is not required for OpenRouter chat.
+To use OpenRouter, follow the [shared provider settings](../../using-sponsor-tools.md#openrouter): set `MODEL_PROVIDER=openrouter`, `OPENROUTER_API_KEY`, and a `MODEL` slug with tool support. An OpenAI key is not required for OpenRouter chat.
 
 ```bash
 npm run dev:web
@@ -33,11 +37,17 @@ Start the trip backend first (`uvicorn app.main:app` in `backend/`), then open `
 
 ## Try the flow
 
-1. Ask: “Where are we going?” Check the answer against the trip currently open.
-2. Ask: “Propose an itinerary.” It is put forward, not agreed; approve it with the button on the page.
-3. Review the page proposal. Click **Approve & save to Ambiguous** only if the fields are correct. The app should return the actual record ID and any provider link.
-4. Refresh the browser. Ask the agent to retrieve the saved task by its ID from Ambiguous, or click **Refresh from Ambiguous**. Check the same record returns without creating a duplicate.
-5. Repeat with **Decline** and confirm no task is created.
+These are two separate approval flows:
+
+1. **Itinerary:** open a real trip code, ask “Propose an itinerary,” review the
+   proposal, then approve it on the page. This publishes the backend plan;
+   check it in the map dashboard. Declining does not publish that proposal.
+   The map's direct Build route action is a different path and publishes immediately.
+2. **Ambiguous task (optional):** ask for a follow-up task such as “Prepare a
+   task to check vegetarian dinner options for this trip.” Review the proposed
+   fields, then click **Approve & save to Ambiguous**. Check the returned record
+   ID, refresh, and use **Refresh from Ambiguous** or retrieve that ID. Test
+   **Decline** on a separate proposal and confirm no task is created.
 
 The result should be a retrievable Ambiguous record with the same ID after refresh. An assistant message saying it saved something is not sufficient.
 

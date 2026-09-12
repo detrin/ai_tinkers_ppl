@@ -1,217 +1,158 @@
-# Group City Route — backend
+# SomeJoy trip backend
 
-A group picks a city. The server scans it for places worth visiting, Claude
-chooses the ones that group will like, the stops get ordered into a walking
-route, and everyone's live position stays in sync over a WebSocket.
-
-It runs with **zero API keys**. Places come from OpenStreetMap, geocoding from
-Nominatim, distances from a public OSRM server. Add an Anthropic key to turn on
-the AI pass; add an OpenRouteService key for real pedestrian routing.
+FastAPI owns shared trip records, city/place discovery, routes, specialist
+workflows, and live group positions. It serves the built map dashboard at
+[/ui/](http://127.0.0.1:8000/ui/) and API docs at
+[/docs](http://127.0.0.1:8000/docs).
 
 ## Run it
 
-```bash
-python -m venv .venv && .venv/Scripts/activate
-pip install -r requirements.txt
-cp .env.example .env
-uvicorn app.main:app --reload
-```
-
-Interactive docs: <http://127.0.0.1:8000/docs>. Provider status: `GET /health`.
+From `backend/`, with Python 3.12+ (macOS/Linux):
 
 ```bash
-pytest tests -q
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-If `../frontend` has been built with `npm run build`, the same server also hosts
-the map UI: <http://127.0.0.1:8000/> redirects to it at `/ui/`. Mounting it
-under a prefix keeps it from ever shadowing an API route.
+On Windows use `.venv\Scripts\python.exe` and
+`.venv\Scripts\uvicorn.exe` instead. Configure the root `.env` using
+[.env.example](../.env.example); preserve any existing file.
+Build the map separately with `npm ci --prefix frontend` and
+`npm run build --prefix frontend` from the repository root.
 
-## The flow
+Use `--reload` for development only. A normal uvicorn process needs a restart
+after backend code changes. A frontend build needs rebuilding after frontend
+changes. Do not start a duplicate process when port 8000 is occupied.
 
-```
-POST /api/groups                     name + city  ->  group with a 6-char join code
-POST /api/groups/{id}/members        display name ->  member id
-PUT  /api/groups/{id}/members/{m}/position        ->  broadcast to the group
-POST /api/groups/{id}/plan           interests    ->  ordered, measured itinerary
-WS   /ws/groups/{id}?member_id={m}                ->  live positions and plan updates
-POST /api/groups/{id}/ask            question     ->  Trip Agent's free-text answer
-```
+## Configuration and health
 
-Supporting endpoints: `GET /api/cities/resolve?q=Prague` resolves a city name,
-and `GET /api/places?city=Prague` returns the raw candidate list for a search
-screen, before any group exists.
+`GET /health` reports configured ranking/routing status, not a successful live
+call to every upstream provider.
 
-## `POST /groups/{id}/ask` — the Trip Agent
+| Setting | Behavior |
+| --- | --- |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | Optional AI ranking; without a key, heuristic ranking |
+| `ORS_API_KEY` | Pedestrian routing; otherwise OSRM, then distance estimates on routing failure |
+| `NOMINATIM_USER_AGENT` | Set a meaningful application/contact identifier for public geocoding |
+| `PERSIST_STATE` | Defaults to true; false disables the group JSON snapshot |
+| `STATE_FILE` | Defaults to `state.json`, relative to process working directory |
+| `CORS_ORIGINS` | Defaults to `*`; CORS is not authentication |
+| `HTTP_TIMEOUT_S` | Upstream HTTP timeout; defaults to 45 seconds |
 
-A separate, additive path alongside `POST /plan`: a free-text question in
-("any good rainy-day backup?"), a free-text answer out, with the group's city
-and interests riding along as context. It does not touch `Group.plan` -- it's
-an advisory sidecar (chat/notes panel), not a second itinerary pipeline, so
-it stays independent of the Overpass/Claude/routing flow above.
+Core route planning needs no model key but still depends on external city and
+place data. Overpass failures can return 502 after retries. Fallbacks are not a
+guarantee that a plan will succeed.
 
-It's a running conversation per group, not a one-shot call: a follow-up like
-"how much does that cost?" resolves against the group's own prior questions
-and answers. History is kept in-process, keyed by `group_id` (same lifetime
-as everything else here -- gone on restart, see `PERSIST_STATE` above).
+## API map
 
-Backed by [`services/agent`](../services/agent), a separate uv-managed
-Pydantic AI project installed here as an editable dependency (see
-`requirements.txt`) so the call is in-process, not a network hop to another
-service. It reads its own `AGENT_MODEL_PROVIDER`/`AGENT_MODEL`/API key from
-the repo-root `.env` (see `services/agent/README.md`) -- nothing to
-configure here. Without a configured provider key, `/ask` returns `503`
-rather than failing the rest of this backend; every other integration here
-degrades the same way (see below).
+All group-scoped endpoints below begin with `/api/groups/{id}`.
+Use the interactive docs for exact request schemas.
 
-## What happens inside `POST /plan`
+| Operation | Endpoint |
+| --- | --- |
+| Create group / add traveller | `POST /api/groups` / `POST /members` |
+| Share position | `PUT /members/{member_id}/position` |
+| Publish a route directly | `POST /plan` |
+| Propose itinerary | `POST /proposals` |
+| Review itinerary | `POST /proposals/{proposal_id}/approve` or `/decline` |
+| Advisory question | `POST /ask` |
+| Media metadata | `POST /media` |
+| Propose expense | `POST /expenses` |
+| Review expense | `POST /expenses/{expense_id}/approve` or `/decline` |
+| Approved ledger | `GET /balances` |
+| Create / vote / close poll | `POST /polls`, `/polls/{poll_id}/vote`, `/polls/{poll_id}/close` |
+| Generate packing list | `POST /packing` |
+| Prepare search query | `GET /local-guide` |
+| Save confirmed memory | `POST /memories` |
 
-1. **Meeting point.** The geometric median of everyone's last known position,
-   not the average, so one member stuck across town does not drag the whole
-   route toward them. With no positions reported it falls back to the city
-   centre.
-2. **Scan.** One Overpass query pulls every named museum, landmark, park,
-   gallery, theatre, market and cafe within the radius. Unnamed geometry is
-   dropped and places mapped twice are merged. A typical city centre yields
-   300 or more candidates.
-3. **Prior score.** Each candidate gets a score from its OSM tags. A castle
-   outranks a memorial; a Wikidata entry lifts a place above one that is merely
-   mapped.
-4. **AI pick.** The top 70 candidates go to Claude with the group's interests
-   and size. It returns the chosen ids, a fit score, a one-line reason, and how
-   long to spend at each. Structured output is schema-constrained, and ids that
-   are not in the candidate list are discarded, so the model cannot invent a
-   place.
-5. **Distances.** One matrix call covers the meeting point and every stop.
-6. **Order.** Nearest neighbour, then 2-opt until nothing improves. This is
-   exact for the handful of stops a group does in a day; a test checks it
-   against brute force.
+WebSocket: `/ws/groups/{id}?member_id={member_id}` supports snapshots, live
+position/presence and route updates. The dashboard's **Agent workspace →
+Refresh** retrieves current specialist records.
 
-## Planning around the people, not just the city
+## Route pipeline and approval
 
-Every traveller carries what the agent heard them say: what they want, what
-they cannot do, and what they can spend. All of it reaches the planner.
+The planner uses a geometric median of supplied member positions (city centre
+when absent), discovers candidate places with Overpass, ranks them heuristically
+or with optional Anthropic, and orders stops with nearest-neighbour/2-opt routing.
+Model-selected place IDs must match candidates. This is a routing heuristic,
+not a general optimal multi-day scheduling guarantee.
 
-The model is given each person in their own words, and told that a constraint
-beats a preference. But asking is not enough, so a limit on how far someone can
-walk is also enforced in code:
+Stored member preferences and constraints feed the planner. Mobility handling
+can restrict candidate/leg distances and report `constraints_applied`.
+Without ORS, mobility checks may use straight-line walking estimates because
+the public OSRM profile is driving. Review distances, accessibility, opening
+hours, and budget manually.
 
-1. Places further than the limit from the meeting point are never offered to
-   the model, so it chooses from somewhere reachable rather than being asked to
-   be careful.
-2. The route is then built outward from the meeting point, taking only the
-   nearest stop still within the limit. Every leg fits by construction.
-3. If nothing is close enough, the plan keeps the nearest stop and says so.
-   `constraints_applied` on every plan names the person, quotes what they said,
-   and states what it cost, so a constraint is never applied silently.
+There are two distinct write paths:
 
-Trimming a finished route cannot do this, and quietly gets it wrong: drop the
-middle stop of A-B-C and the new A-C leg can be longer than either it replaced.
-An earlier version did exactly that and reported a 3 km leg as being under
-900 m. A test now pins that case.
+- `POST /plan`, used by the map's Build route, publishes immediately.
+- `POST /proposals` stores a proposed route. Its approval endpoint publishes;
+  decline does not. The Next.js app at port 3100 has the proposal approval UI.
 
-One caveat. The limit is judged on walking distance. Only OpenRouteService
-gives a real pedestrian profile; the public OSRM server answers for cars, and a
-300 m walk across a pedestrianised old town comes back as 1.7 km of one-way
-streets. Without an `ORS_API_KEY` the check falls back to a straight-line
-walking estimate, which is far closer to the truth than a car's route.
+## Slack synchronization APIs
 
-## Live positions
+The backend also implements:
 
-Each member opens one socket. Sending `{"type":"position","lat":…,"lon":…}`
-stores the position and pushes it to everyone in the group, including the
-sender, annotated with distance to the meeting point and to the next stop.
-Those two distances are straight-line on purpose: they recompute on every
-position tick, and routing each one would burn the provider quota for a number
-that changes by metres.
+- `GET/POST /api/trips/by-slack-thread`.
+- `PATCH /api/groups/{id}/members/{member_id}/preferences`.
+- `GET/POST /api/groups/{id}/messages`.
+- Itinerary proposal deduplication with a caller-supplied idempotency key.
 
-Socket events: `snapshot`, `position`, `presence`, `member_joined`,
-`member_left`, `plan`, `pong`, `error`.
+These are integration building blocks. The current Slack handlers do **not**
+automatically call the mapping/message/preference endpoints. Reading a Slack
+thread therefore does not guarantee that its constraints are saved on members.
 
-## Degradation, on purpose
+Deduplication applies to specific thread/message/proposal operations with
+their required identifiers, not every endpoint. Resending an expense, poll,
+media entry, or memory can create another record.
 
-Nothing in the request path is allowed to fail the whole plan.
+## Advisory agent
 
-| Missing | What happens |
-|---|---|
-| `ANTHROPIC_API_KEY` | Heuristic ranking: tag prior plus interest keyword matching. |
-| `ORS_API_KEY` | Public OSRM. Its demo server is car-only, so walking times are re-derived from street distance at 4.8 km/h. |
-| Both routing hosts | Straight-line distance with a 1.31 detour factor for dense city centres. |
-| Overpass down | Retried three times with backoff, then a 502 with a readable message. |
+`POST /api/groups/{id}/ask` invokes
+[services/agent](../services/agent/README.md) in-process via
+[agent_bridge.py](app/services/agent_bridge.py). The requirements install that
+package as an editable dependency. A separate agent server is unnecessary.
 
-The response says which path was taken: `routing_provider` and `ranked_by` are
-on every plan.
+It uses `AGENT_MODEL_PROVIDER`/`AGENT_MODEL`, falling back to shared model
+settings. Missing dependency/provider configuration can return 503 without
+taking down the basic trip API. Exa and Google Maps tools are optional.
 
-## Cross-surface trip state
+Conversation history, candidates, and advisory proposals live in the agent's
+separate in-memory store and disappear on restart. They are not included in the
+backend JSON snapshot or automatically copied into `Group.plan`.
 
-The operations `GROUP_TRAVEL_AGENTS.md` names under "Cross-surface
-synchronization". Slack (`apps/channel`) and the web app both go through these,
-so neither surface holds state the other cannot see.
+## Specialist limits
 
-```
-POST   /api/trips/by-slack-thread              find or create a trip for a thread
-GET    /api/trips/by-slack-thread              look one up
-PATCH  /api/groups/{id}/members/{m}/preferences what the agent heard about a traveller
-POST   /api/groups/{id}/messages               record a message against the trip
-GET    /api/groups/{id}/messages
-POST   /api/groups/{id}/proposals              build an itinerary and put it forward
-POST   /api/groups/{id}/proposals/{p}/approve  the approval boundary
-POST   /api/groups/{id}/proposals/{p}/decline
-GET    /api/groups/{id}/proposals
+Expenses split equally among registered members and affect balances only when
+approved. No payment is made. Use one currency per group; mixed-currency totals
+are not supported. Media saves metadata, not image files or OCR. Packing is
+generated, not persisted. Local-guide preparation is not itself a web search.
+Poll results do not execute bookings or publish plans.
+See [the complete implementation guide](../GROUP_TRAVEL_AGENTS.md).
+
+## Tests
+
+```bash
+.venv/bin/python -m pip install pytest
+.venv/bin/python -m pytest -q
 ```
 
-Two rules hold across all of it.
+Tests use local/mocked data. Verify live provider calls separately.
 
-**A proposal is not a plan.** Building an itinerary changes nothing the group is
-doing. Approving one is the single place it becomes the group's plan, and
-declining writes no itinerary at all. Approving a second one supersedes the
-first, so the group always follows exactly one.
+## Storage and security
 
-**Slack redelivers, so every write is idempotent.** A thread maps to one trip
-however many times the mention is delivered. A message carrying a
-`source_message_id` is stored once. A proposal created with an
-`idempotency_key` returns the original instead of stacking up duplicates. A
-repeated approval is not an error and does not re-decide. Replays answer 200
-where the first call answered 201, so a caller can tell what happened.
+One worker only: group state and WebSocket rooms are process-local, with an
+optional JSON snapshot for groups. Keep a consistent working directory or an
+absolute `STATE_FILE` to preserve the expected dataset. Never commit private
+state snapshots.
 
-Threads are keyed by workspace, channel and thread id, never by channel name:
-names get renamed and would silently remap a trip to the wrong conversation.
+The trip API has no production authentication or per-trip authorization.
+Anyone with access and a group ID can issue operations. Join codes and
+`decided_by` strings are not identity verification. Add authentication,
+authorization, database persistence, and retention controls before exposing
+sensitive data or using multiple workers.
 
-Traveller preferences merge rather than replace, because the agent reports one
-detail at a time as it hears it. Reporting a new constraint does not erase the
-budget it learned earlier.
-
-## Known limits
-
-- **OSRM demo distances are car distances.** In an old town with one-way
-  streets they overstate a walk, sometimes badly. An OpenRouteService key fixes
-  this properly; it is the single highest-value key to add.
-- **State is a JSON file.** Fine for a demo and for one process. Swap
-  `app/store.py` for Postgres before running more than one worker, because the
-  store and the socket rooms both live in process memory.
-- **No authentication.** Anyone holding a group id can read and write it. The
-  join code gates joining, nothing else.
-
-## Layout
-
-```
-app/
-  main.py            app wiring, CORS, /health
-  config.py          environment -> Settings
-  models.py          the wire schemas
-  store.py           groups, members, positions, plans
-  hub.py             WebSocket rooms and fan-out
-  geo.py             haversine, geometric median, fallback matrix
-  services/
-    geocode.py       city name -> coordinates (Nominatim)
-    places.py        Overpass query, tag scoring, dedupe
-    ranking.py       the Claude call, and the heuristic that replaces it
-    routing.py       distance matrix providers, 2-opt ordering
-    accessibility.py what a constraint means for how far anyone walks
-    planner.py       ties the above into a Plan
-  routers/
-    groups.py        REST
-    trips.py         Slack mapping, travellers, messages, approvals
-    realtime.py      WebSocket
-tests/               47 tests, no network
-```
+Source: [models](app/models.py), [store](app/store.py),
+[trip integration routes](app/routers/trips.py),
+[specialists](app/routers/specialists.py), [planner](app/services/planner.py).

@@ -1,80 +1,115 @@
-# Slack thread agent
+# SomeJoy Slack trip assistant
 
-**OpenAI + CopilotKit Channels + Exa**
-
-Build an agent that reads an existing conversation, researches what matters, and replies in the same Slack thread with native cards and source links. Try a team research discussion, support handoff, project decision, or incident review. The included incident scenario shows how the infrastructure fits together; replace it with your own workflow.
-
-[![Slack thread agent demo](../../assets/demos/slack.gif)](../../assets/demos/slack.mp4)
-
-_Scroll through a completed Slack thread: incident context, Exa source cards, and the final answer. The preview is sped up; click it for the full MP4._
+The managed CopilotKit Channel connects Slack conversations to the shared trip
+backend. It reads thread context, calls typed travel tools, and posts native
+cards, search sources, and expense receipts.
 
 ## Get started
 
-Complete the [root clone/install steps](../../README.md#get-started), then configure `.env` with [OpenAI](../../using-sponsor-tools.md#openai), [CopilotKit Intelligence](../../using-sponsor-tools.md#copilotkit), and [Exa](../../using-sponsor-tools.md#exa):
+Follow the [root quickstart](../../README.md#get-started), start the backend,
+and configure the root `.env` with:
 
-```dotenv
-MODEL_PROVIDER=openai
-OPENAI_API_KEY=your-key
-MODEL=gpt-5.6-sol
-CHANNEL_CODE=your-channel-code
-INTELLIGENCE_API_KEY=your-project-key
-EXA_API_KEY=your-key
-EXA_SEARCH_TYPE=fast
-```
+- `MODEL_PROVIDER`, `MODEL`, and the selected provider key.
+- `INTELLIGENCE_API_KEY` and matching `CHANNEL_CODE`.
+- `TRIP_API_URL` (defaults to the local backend at port 8000).
+- Optional `EXA_API_KEY` for live search.
 
-Choose an OpenAI model available to your account. Start the official onboarding handoff:
+For a new Slack connection, run:
 
 ```bash
 npm run channel:setup -- --no-clipboard
 ```
 
-This installs the maintained `channels-setup` skill and prints a prompt. Give that prompt to your coding agent in this checkout and specify **Slack**, using the existing `apps/channel` app. Have the agent follow the skill through sign-in, project/Channel configuration, Slack installation, and a real reply. The command alone does not create the Channel. Keep existing `.env` values; the listener reads `CHANNEL_CODE` and `INTELLIGENCE_API_KEY`. The [shared onboarding notes](../../README.md#copilotkit-onboarding) explain CLI credential naming; the [setup guide](../../dev-docs/setup.md) and [screenshot walkthrough](../../dev-docs/channels-sdk-walkthrough/README.md) provide manual reference.
+Give the emitted prompt to your coding agent; choose Slack and preserve this
+app. Follow the installed `channels-setup` skill through provisioning and a
+real reply. Installing the skill alone does not connect Slack.
+See [CopilotKit onboarding](../../README.md#copilotkit-onboarding).
+
+Start a stable listener from the repository root:
 
 ```bash
-npm run dev:slack
+npm run start --workspace channel
 ```
 
-Invite the bot to a Slack channel and mention it in a populated thread. CopilotKit Intelligence manages the Slack connection; this listener needs no public tunnel or Slack app token on the managed path.
+Use `npm run dev:slack` only when you want file watching. Do not run both.
+Keep one listener per managed Channel, including other teammates' machines.
+The managed path needs a long-running process but no public tunnel to this
+listener; Intelligence owns Slack ingress and platform credentials.
 
 ## Try the flow
 
-1. Add two or three facts to a Slack thread before mentioning the agent.
-2. Ask it to catch up using the thread and render a card. Verify facts came from earlier messages rather than your last prompt.
-3. Ask it to research a related question with Exa. `search_web` posts native **Search sources** cards when sources are returned; open the links and separate published evidence from facts in your thread.
-4. Ask a follow-up that relies on the discussion. Check the answer and card remain in the same thread.
-
-Use [demo prompts](../../dev-docs/demo-prompts.md#slack-context-sources-card-follow-up) for exact incident inputs. If you add an external write, enforce approval in code before that write. The included proposal card records a decision without executing a production action.
-
-## Customize these files
-
-| Piece | File |
-|---|---|
-| Agent and model | [Shared agent factory](../../packages/agent-core/src/agent.ts), using CopilotKit's built-in agent |
-| Channel lifecycle | [src/channel.tsx](src/channel.tsx): mention, subscribe, respond to subscribed messages |
-| Channel-only run adapter | [src/agent.ts](src/agent.ts): keeps outer transcript/state while using fresh inner agent runs |
-| Thread context and research | [src/tools.tsx](src/tools.tsx) and [src/search.tsx](src/search.tsx): `read_thread` and Exa-backed `search_web` |
-| Native cards | [src/components.tsx](src/components.tsx): incident card and timeline via Channels JSX |
-| Prompt | [Shared prompt](../../packages/agent-core/src/prompt.ts) |
-
-OpenRouter can be used as the model gateway through the shared provider settings in [using-sponsor-tools.md](../../using-sponsor-tools.md#openrouter). Teams or another messaging platform can reuse the Channels pattern, but this starter app is wired for managed Slack.
-
-## Give this to your coding agent
+In the target Slack channel:
 
 ```text
-Read the root hackathon overview, rules, sponsor guide, and AGENTS.md.
-Read .agents/skills/build-channels-agent/SKILL.md before changing Slack code.
-If Slack is not connected, run npm run channel:setup -- --no-clipboard
-from the repository root and follow its prompt using the channels-setup
-skill. Select Slack and connect the existing apps/channel app.
-Adapt apps/channel to our project's user and conversation. Preserve
-read_thread, use Exa when research helps, and render results with Channels JSX.
-Replace incident-specific schemas, tools, and prompts with our own workflow.
-Demonstrate that earlier messages change the answer and return source links.
-Run npm run verify and document the live Slack checks separately.
+/invite @trip-planner
 ```
 
-## Verify and limits
+Use your actual bot name if different. Then mention it:
 
-Run `npm run verify` for root/channel typechecks and offline tests. Live Slack delivery, Exa search, and model responses require your own accounts and should be documented separately from local tests.
+```text
+@trip-planner Create a travel group called Prague Weekend in Prague.
+We like history, museums, local food, and architecture. We prefer walking.
+Return the real join code.
+```
 
-Keep the pinned Channels/runtime pair and the `@ag-ui/client` override. The [Channels skill](../../.agents/skills/build-channels-agent/SKILL.md) supplies the verified API vocabulary. [Channels guide](https://copilotkit.ai/channels-guide.md) · [OpenTag reference app](https://github.com/CopilotKit/OpenTag)
+Join that code in the map dashboard and register travellers before testing
+expenses. Use [the complete demo script](../../dev-docs/somejoy-demo.md) for
+lookup, search, split, polls, and expected UI results. There is no custom
+`/trip` command in this app; `/invite` is Slack's own command.
+
+## Tools and behavior
+
+See [the capability matrix](../../GROUP_TRAVEL_AGENTS.md#implemented-tools-and-visible-results)
+for all registered trip tools and their limitations.
+
+- Mentions subscribe the thread; subsequent subscribed-thread messages can
+  trigger the agent without another mention.
+- Simple read-only join-code lookups have a deterministic fast path that posts
+  real backend data without running a model. Multi-part requests use the agent.
+- Expense proposals save shared data and post a deterministic receipt. Completed
+  receipt-only continuations skip an unnecessary model response.
+- `ChannelRunAgent` preserves the outer transcript/state and creates a fresh
+  inner agent per low-level run to avoid same-tick lifecycle conflicts.
+- Tool status is enabled. Diagnostic logs capture timing/stage/tool names and
+  redacted errors, rather than prompt text or tool arguments.
+- Exa tools are registered only with a key. Raw Ambiguous MCP tools are disabled
+  in the current Slack factory; the approved task flow lives in `apps/web`.
+
+Reading a thread is not the same as persisting each traveller's preferences.
+The current handlers do not automatically archive Slack messages, map every
+speaker to a member, or call the backend preference APIs.
+
+## Source files
+
+| Piece | File |
+| --- | --- |
+| Lifecycle and fast lookup | [src/channel.tsx](src/channel.tsx) |
+| Trip/specialist tools | [src/trip-tools.ts](src/trip-tools.ts) |
+| Run adapter | [src/agent.ts](src/agent.ts) |
+| Thread tools and search | [src/tools.tsx](src/tools.tsx), [src/search.tsx](src/search.tsx) |
+| Native cards | [src/components.tsx](src/components.tsx) |
+| Model factory | [shared agent](../../packages/agent-core/src/agent.ts) |
+| Domain prompt | [shared prompt](../../packages/agent-core/src/prompt.ts) |
+
+Some inherited incident components and generic approval tools remain as
+infrastructure references. Their approval cards do not execute trip writes.
+
+## Verify and troubleshoot
+
+```bash
+npm run verify
+npm run channel:status
+curl --max-time 5 http://127.0.0.1:8000/health
+```
+
+Offline tests do not prove live provider delivery. An online listener does not
+prove the backend, selected model, or search provider is responding. Send one
+small lookup, inspect diagnostics, and verify the real group/card.
+
+For a timeout after a write, refresh the dashboard before resending; the write
+may have succeeded even if Slack failed to deliver its receipt. Specialist
+writes are not globally deduplicated. See [troubleshooting](../../dev-docs/troubleshooting.md).
+
+Before changing this app, read the
+[Channels skill](../../.agents/skills/build-channels-agent/SKILL.md).
+Keep the pinned Channels/runtime pair and deduped `@ag-ui/client`.

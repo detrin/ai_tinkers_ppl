@@ -1,8 +1,12 @@
 # A complete incident demo
 
+This is inherited starter reference material. For the current trip project, use
+[SomeJoy: Slack-to-UI demo](somejoy-demo.md). Its prompts and capability limits
+match the current app; the incident flow below is not the SomeJoy demo.
+
 The point is to show work informed by its surroundings and a result visible where the interaction began. Choose either the Slack workflow or the browser workflow, then add only the sponsor capabilities you need.
 
-These are reference interactions to learn from. Build your own project and its core functionality during the event, and distinguish that work from inherited starter code. See [build eligibility](../SUBMISSION.md#build-eligibility).
+These are reference interactions to learn from. Build your own project and its core functionality during the event, and distinguish that work from inherited starter code. See [build eligibility](../SUBMISSION.md#build-eligibility-and-attribution).
 
 ## Slack: context, sources, card, follow-up
 

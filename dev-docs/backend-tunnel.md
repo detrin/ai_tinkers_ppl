@@ -3,7 +3,10 @@
 `backend/` doesn't fit Vercel: it holds a WebSocket hub for live position sync
 (Functions are request/response only, no long-lived server push) and its state
 -- `GroupStore`, and `services/agent`'s conversation memory -- is in-process
-memory, not a database. Deploying it properly means a persistent-process host
+memory, not a database. Group records also have an optional JSON snapshot;
+advisory-agent history does not share that snapshot. Keep the same private state
+file when restarting or deliberately start with a fresh demo dataset.
+Deploying it properly means a persistent-process host
 plus Postgres/Redis, which is real work we're deferring past the hackathon.
 
 Instead: run `backend/` locally, and forward a stable public URL to it with a
