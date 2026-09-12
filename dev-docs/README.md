@@ -14,6 +14,7 @@ Start with the [hackathon homepage](../README.md), choose a [template](../README
 | [Model switching](model-switching.md) | Choosing OpenAI or OpenRouter and understanding provider precedence |
 | [Tools and context](tools-and-context.md) | CopilotKit Channels tools, native UI, and action proposals |
 | [Deployment](deploy.md) | Hosting the chosen surface |
+| [Backend tunnel](backend-tunnel.md) | Sharing the locally-run backend/frontend via Cloudflare Tunnel |
 | [Demo prompts](demo-prompts.md) | Reproducible reference interactions to adapt |
 | [Troubleshooting](troubleshooting.md) | Diagnosing setup and runtime failures |
 | [Submission checklist](../SUBMISSION.md) | Preparing evidence and deliverables |
