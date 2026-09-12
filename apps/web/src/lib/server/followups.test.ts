@@ -8,7 +8,7 @@ import type { Workplace, WorkplaceTask } from "./workplace";
 
 const session = "a".repeat(64);
 const input = {
-  incidentId: "INC-1042",
+  tripId: "trip-alpha",
   title: "Check pool metrics",
   details: "Compare before and after deploy.",
 };
@@ -110,7 +110,7 @@ test("concurrent approval and restart cannot duplicate a saved task; refresh rea
   const restarted = new FollowupService(provider, directory);
   await restarted.approve(session, p.id);
   const before = provider.reads;
-  assert.equal((await restarted.list("INC-1042"))[0].id, provider.tasks[0].id);
+  assert.equal((await restarted.list("trip-alpha"))[0].id, provider.tasks[0].id);
   assert.ok(provider.reads > before);
   const another = await restarted.propose(session, input);
   await restarted.approve(session, another.id);
@@ -144,7 +144,8 @@ test("a lost create reply is reconciled from Ambiguous without a second create",
 test("invalid proposal inputs fail before provider writes", async (t) => {
   const { service, provider } = await fixture(t);
   await assert.rejects(
-    service.propose(session, { ...input, incidentId: "unknown" }),
+    // A trip id is opaque, so the guard is its shape, not a lookup.
+    service.propose(session, { ...input, tripId: "not a trip id!" }),
   );
   await assert.rejects(service.propose(session, { ...input, title: " " }));
   await assert.rejects(

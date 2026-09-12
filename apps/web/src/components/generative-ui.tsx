@@ -16,13 +16,13 @@
 import { useComponent, useHumanInTheLoop } from "@copilotkit/react-core/v2";
 import { z } from "zod";
 
-import { IncidentCard, Timeline } from "./streamed-cards";
+import { TripCard, Timeline } from "./streamed-cards";
 
 export function GenerativeUI() {
   useComponent({
-    name: "incident_card",
+    name: "trip_card",
     description:
-      "Draw the current state of the incident as a card. Call this once you have read the context, and again when the picture changes.",
+      "Draw the current state of the trip as a card: where the group is going, what is agreed, what is still open. Call this once you have read the context, and again when the picture changes.",
     parameters: z.object({
       headline: z.string().describe("What is broken, in under ten words."),
       summary: z.string().describe("Who or what is affected."),
@@ -30,7 +30,7 @@ export function GenerativeUI() {
       nextSteps: z.array(z.string()).max(3).default([]),
       tone: z.enum(["neutral", "good", "attention"]).default("neutral"),
     }),
-    render: IncidentCard,
+    render: TripCard,
   });
 
   useComponent({

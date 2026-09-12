@@ -6,7 +6,7 @@ export type WorkplaceTask = {
 };
 export type Proposal = {
   id: string;
-  incidentId: string;
+  tripId: string;
   title: string;
   description: string;
   workspaceId: string;

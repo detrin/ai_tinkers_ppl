@@ -15,9 +15,9 @@ const request = (body: unknown, headers: Record<string, string> = {}) =>
   });
 const proposal = {
   operation: "propose",
-  incidentId: "INC-1042",
+  tripId: "trip-alpha",
   title: "Compare metrics",
-  details: "Use the selected incident context.",
+  details: "Use the open trip context.",
 };
 
 test("unconfigured GET establishes a protected session, while writes fail explicitly", async () => {
@@ -113,7 +113,7 @@ test("HTTP proposal/approval/read flow rejects edited fields and never writes on
   const { task } = await saved.json();
   assert.equal(task.description, prepared.description);
   const refreshed = await handler(
-    new Request(`${origin}/api/followups?incidentId=INC-1042`, {
+    new Request(`${origin}/api/followups?tripId=trip-alpha`, {
       headers: { cookie },
     }),
   );
@@ -227,7 +227,7 @@ test("cleanup failures do not mask successful provider responses", async (t) => 
         {
           id: "22222222-2222-4222-8222-222222222222",
           title: "Compare metrics",
-          description: "agents-everywhere:INC-1042",
+          description: "agents-everywhere:trip-alpha",
           url: null,
         },
       ];
@@ -249,7 +249,7 @@ test("cleanup failures do not mask successful provider responses", async (t) => 
     directory: "/unused",
   });
   const response = await handler(
-    new Request(`${origin}/api/followups?incidentId=INC-1042`, {
+    new Request(`${origin}/api/followups?tripId=trip-alpha`, {
       headers: { cookie },
     }),
   );
@@ -289,7 +289,7 @@ test("cleanup failures do not mask controlled provider errors", async (t) => {
     directory: "/unused",
   });
   const response = await handler(
-    new Request(`${origin}/api/followups?incidentId=INC-1042`, {
+    new Request(`${origin}/api/followups?tripId=trip-alpha`, {
       headers: { cookie },
     }),
   );
