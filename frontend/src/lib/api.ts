@@ -58,6 +58,9 @@ export const api = {
       body: JSON.stringify({ display_name: displayName, join_code: joinCode ?? null }),
     }),
 
+  leaveGroup: (groupId: string, memberId: string) =>
+    request<null>(`/api/groups/${groupId}/members/${memberId}`, { method: "DELETE" }),
+
   buildPlan: (groupId: string, input: PlanInput) =>
     request<Plan>(`/api/groups/${groupId}/plan`, {
       method: "POST",

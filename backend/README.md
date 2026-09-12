@@ -113,6 +113,45 @@ Nothing in the request path is allowed to fail the whole plan.
 The response says which path was taken: `routing_provider` and `ranked_by` are
 on every plan.
 
+## Cross-surface trip state
+
+The operations `GROUP_TRAVEL_AGENTS.md` names under "Cross-surface
+synchronization". Slack (`apps/channel`) and the web app both go through these,
+so neither surface holds state the other cannot see.
+
+```
+POST   /api/trips/by-slack-thread              find or create a trip for a thread
+GET    /api/trips/by-slack-thread              look one up
+PATCH  /api/groups/{id}/members/{m}/preferences what the agent heard about a traveller
+POST   /api/groups/{id}/messages               record a message against the trip
+GET    /api/groups/{id}/messages
+POST   /api/groups/{id}/proposals              build an itinerary and put it forward
+POST   /api/groups/{id}/proposals/{p}/approve  the approval boundary
+POST   /api/groups/{id}/proposals/{p}/decline
+GET    /api/groups/{id}/proposals
+```
+
+Two rules hold across all of it.
+
+**A proposal is not a plan.** Building an itinerary changes nothing the group is
+doing. Approving one is the single place it becomes the group's plan, and
+declining writes no itinerary at all. Approving a second one supersedes the
+first, so the group always follows exactly one.
+
+**Slack redelivers, so every write is idempotent.** A thread maps to one trip
+however many times the mention is delivered. A message carrying a
+`source_message_id` is stored once. A proposal created with an
+`idempotency_key` returns the original instead of stacking up duplicates. A
+repeated approval is not an error and does not re-decide. Replays answer 200
+where the first call answered 201, so a caller can tell what happened.
+
+Threads are keyed by workspace, channel and thread id, never by channel name:
+names get renamed and would silently remap a trip to the wrong conversation.
+
+Traveller preferences merge rather than replace, because the agent reports one
+detail at a time as it hears it. Reporting a new constraint does not erase the
+budget it learned earlier.
+
 ## Known limits
 
 - **OSRM demo distances are car distances.** In an old town with one-way
@@ -142,6 +181,7 @@ app/
     planner.py       ties the above into a Plan
   routers/
     groups.py        REST
+    trips.py         Slack mapping, travellers, messages, approvals
     realtime.py      WebSocket
-tests/               22 tests, no network
+tests/               39 tests, no network
 ```

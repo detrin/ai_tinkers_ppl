@@ -36,6 +36,9 @@ Then everything is on <http://127.0.0.1:8000>, with the UI at `/ui/`.
    group of three on one laptop.
 4. **Build the route.** The meeting point, the stops in walking order, and every
    leg distance appear for everyone at the same moment.
+5. **Leave when you are done.** *Leave this group* asks once, then drops you
+   back to the setup screen so you can start your own group or join another.
+   The rest of the group sees you go straight away.
 
 Each browser tab is its own person: the session lives in `sessionStorage`, so a
 refresh keeps you in the group but a new tab joins as somebody else.

@@ -8,7 +8,7 @@ const command = z.discriminatedUnion("operation", [
   z
     .object({
       operation: z.literal("propose"),
-      incidentId: z.string(),
+      tripId: z.string(),
       title: z.string(),
       details: z.string(),
     })
@@ -17,7 +17,7 @@ const command = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("deny"), proposalId: z.uuid() }).strict(),
 ]);
 const setup =
-  "Set AMBIGUOUS_API_KEY in root .env and restart the web app. Select sample incidents now; saving and retrieval require a real Ambiguous workspace.";
+  "Set AMBIGUOUS_API_KEY in root .env and restart the web app. Browse trips now; saving and retrieval require a real Ambiguous workspace.";
 
 async function closeConnection(connection: { close(): Promise<void> }) {
   try {
@@ -120,7 +120,7 @@ export function createFollowupHandler(options: {
             workspaceId: identity.workspaceId,
             identityName: identity.name,
             tasks: await service.list(
-              url.searchParams.get("incidentId") ?? "INC-1042",
+              url.searchParams.get("tripId") ?? "trip-alpha",
             ),
           }),
         );
@@ -154,7 +154,7 @@ export function createFollowupHandler(options: {
           reply(
             {
               error:
-                "Invalid request or provider data. Check the incident, title, details, and record ID.",
+                "Invalid request or provider data. Check the trip, title, details, and record ID.",
             },
             400,
           ),

@@ -21,7 +21,7 @@ import { workplaceMcpServers } from "./capabilities/workplace";
 export type AgentFactoryOptions = {
   /** Disable workplace MCP for surfaces that should only see local app tools. */
   workplace?: boolean;
-  /** Override the default incident prompt for a surface-specific starter. */
+  /** Override the default travel prompt for a surface-specific starter. */
   prompt?: string;
 };
 
