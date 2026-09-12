@@ -955,3 +955,84 @@ def test_travellers_reach_the_model_in_their_own_words(monkeypatch):
     prompt = captured["prompt"]
     for expected in ["Ana", "museums", "bad knee", "120 EUR", "Bo", "beer"]:
         assert expected in prompt, f"{expected!r} never reached the model"
+
+
+def test_a_constrained_group_somewhere_empty_gets_the_normal_404(client, monkeypatch):
+    """A mobility constraint must not turn "nowhere to go" into a 500.
+
+    With no candidates there is no nearest stop to fall back to, which used to
+    raise on an empty range.
+    """
+    async def nothing(lat, lon, radius_m=None, limit=None):
+        return []
+
+    monkeypatch.setattr(places_service, "discover", nothing)
+    monkeypatch.setattr(planner.places_service, "discover", nothing)
+
+    group = client.post("/api/groups", json={"name": "G", "city": "Prague"}).json()
+    gid = group["id"]
+    ana = client.post(
+        f"/api/groups/{gid}/members", json={"display_name": "Ana"}
+    ).json()
+    client.patch(
+        f"/api/groups/{gid}/members/{ana['id']}/preferences",
+        json={"constraints": ["uses a wheelchair"]},
+    )
+
+    assert client.post(f"/api/groups/{gid}/plan", json={"max_stops": 3}).status_code == 404
+
+
+def test_a_position_update_does_not_rewrite_the_whole_store(tmp_path):
+    """Positions arrive every few seconds per member. Persisting them rewrites
+    every group in the store, which costs more the busier the server is."""
+    from app.models import City
+    from app.store import GroupStore
+
+    state = tmp_path / "state.json"
+    store = GroupStore(state)
+    city = City(name="Prague", display_name="Praha", lat=50.0, lon=14.0, country="CZ")
+
+    async def scenario():
+        group = await store.create_group("g", city, [], "foot")
+        member = await store.add_member(group.id, "Ana")
+        before = state.stat().st_mtime_ns
+        for i in range(5):
+            await store.set_position(group.id, member.id, 50.0 + i * 1e-5, 14.0, None)
+        return before, state.stat().st_mtime_ns
+
+    before, after = asyncio.run(scenario())
+    assert before == after  # not one write for five ticks
+
+
+def test_the_message_log_keeps_only_its_recent_tail(tmp_path):
+    from app.models import City
+    from app.store import GroupStore, MAX_MESSAGES_PER_TRIP
+
+    store = GroupStore(None)
+    city = City(name="Prague", display_name="Praha", lat=50.0, lon=14.0, country="CZ")
+
+    async def scenario():
+        group = await store.create_group("g", city, [], "foot")
+        for i in range(MAX_MESSAGES_PER_TRIP + 25):
+            await store.append_message(group.id, "slack", f"msg {i}", f"ts{i}", None, "Ana")
+        return store.get(group.id).messages
+
+    messages = asyncio.run(scenario())
+    assert len(messages) == MAX_MESSAGES_PER_TRIP
+    # The tail is what survives, so the newest message is still there.
+    assert messages[-1].text == f"msg {MAX_MESSAGES_PER_TRIP + 24}"
+
+
+def test_credentials_are_not_claimed_alongside_a_wildcard_origin():
+    """A browser refuses "*" plus credentials, so asking for both yields a CORS
+    policy that silently does not work."""
+    from starlette.middleware.cors import CORSMiddleware
+
+    from app.main import app
+
+    cors = next(
+        m for m in app.user_middleware if m.cls is CORSMiddleware
+    )
+    options = cors.kwargs
+    if "*" in options["allow_origins"]:
+        assert options["allow_credentials"] is False

@@ -28,6 +28,10 @@ from .models import (
 
 _ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no look-alike characters
 
+# A Slack thread can run for days, and every message is stored and then
+# rewritten on each save. Keep the recent tail, which is all the agent reads.
+MAX_MESSAGES_PER_TRIP = 500
+
 
 def _merge(current: list[str], incoming: list[str]) -> list[str]:
     """Union, case-insensitive, keeping the order things were first said in."""
@@ -168,7 +172,11 @@ class GroupStore:
             member.position = MemberPosition(
                 lat=lat, lon=lon, accuracy_m=accuracy_m, updated_at=time.time()
             )
-            self._save()
+            # Deliberately not persisted. A phone reports its position every few
+            # seconds, and _save rewrites every group in the store, so writing
+            # here costs O(everything) per tick and scales with the square of
+            # how busy the server is. A position is also worthless after a
+            # restart: clients re-report within seconds of reconnecting.
             return member
 
     async def set_online(self, group_id: str, member_id: str, online: bool) -> Member | None:
@@ -249,6 +257,8 @@ class GroupStore:
                 created_at=time.time(),
             )
             group.messages.append(message)
+            if len(group.messages) > MAX_MESSAGES_PER_TRIP:
+                del group.messages[:-MAX_MESSAGES_PER_TRIP]
             self._save()
             return message, True
 
