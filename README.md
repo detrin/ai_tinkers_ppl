@@ -10,6 +10,37 @@
 
 </div>
 
+## This project: a group trip planner
+
+This repository is the starter kit above, built into a group trip planner for
+the hackathon. People plan a city trip in a Slack thread; the agent records what
+each traveller said and turns it into a walking route the group approves, with
+everyone's live position on a map. See [SUBMISSION.md](SUBMISSION.md) for what
+was inherited from the kit and what was built during the event.
+
+It is four processes, and only the first is required.
+
+| | Command | Needs |
+|---|---|---|
+| Trip backend and map UI | `cd backend && pip install -r requirements.txt && uvicorn app.main:app` | Python 3.12; no keys. `ANTHROPIC_API_KEY` turns on AI place ranking, `ORS_API_KEY` gives real pedestrian routing |
+| Map UI in dev | `cd frontend && npm install && npm run dev` | the backend on :8000 |
+| Web workspace | `npm run dev:web` | the backend, plus a model key for the chat |
+| Slack agent | `npm run dev:slack` | `INTELLIGENCE_API_KEY` and `CHANNEL_CODE` |
+
+The backend serves the built map UI itself, so `uvicorn app.main:app` alone gives
+you <http://127.0.0.1:8000> once `frontend/` has been built. Full details in
+[backend/README.md](backend/README.md) and [frontend/README.md](frontend/README.md).
+
+`backend/requirements.txt` ends with `-e ../services/agent`, which pulls in the
+Trip Agent and its Pydantic AI dependencies. That part is optional: it powers
+`/api/groups/{id}/ask` and nothing else. If it fails to install, drop the line —
+the backend imports the agent lazily, so everything else runs and `/ask` answers
+503 instead.
+
+Credentials all live in one root `.env`; copy `.env.example` and fill in what you
+need. Nothing here requires every key: each integration degrades to a working
+fallback and the API reports which path it took.
+
 ## Overview
 
 Build for **[Agents, Everywhere: Bots, Channels, & More](https://aitinkerers.org/hackathons/global/agents-everywhere)**, the AI Tinkerers global hackathon on **September 12–13, 2026**. Choose your city on the event page for its local schedule. Put an agent inside a conversation, an app, a phone, or a physical environment. Make the context of that place essential to what it can do.
