@@ -10,18 +10,25 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from pydantic_ai.messages import ModelMessage
+
 
 @dataclass
 class TripRecord:
     trip_id: str
     candidates: list[dict] = field(default_factory=list)
     itineraries: list[dict] = field(default_factory=list)
+    # Conversation history for `TripAgent.ask`, so a follow-up question sees
+    # prior answers instead of starting a fresh conversation every call.
+    messages: list[ModelMessage] = field(default_factory=list)
 
 
 class TripStore(Protocol):
     def save_candidates(self, trip_id: str, candidates: list[dict]) -> int: ...
     def save_itineraries(self, trip_id: str, itineraries: list[dict]) -> None: ...
     def get(self, trip_id: str) -> TripRecord | None: ...
+    def get_messages(self, trip_id: str) -> list[ModelMessage]: ...
+    def save_messages(self, trip_id: str, messages: list[ModelMessage]) -> None: ...
 
 
 class InMemoryTripStore:
@@ -41,6 +48,13 @@ class InMemoryTripStore:
 
     def get(self, trip_id: str) -> TripRecord | None:
         return self._trips.get(trip_id)
+
+    def get_messages(self, trip_id: str) -> list[ModelMessage]:
+        record = self._trips.get(trip_id)
+        return record.messages if record else []
+
+    def save_messages(self, trip_id: str, messages: list[ModelMessage]) -> None:
+        self._get_or_create(trip_id).messages = messages
 
     def __len__(self) -> int:
         return len(self._trips)

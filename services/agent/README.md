@@ -19,9 +19,11 @@ single tool-calling loop needs; the OpenAI Agents SDK has no AG-UI support
 
 ```
 src/agent/
-  trip_agent.py       System prompt + tool wiring + plan(). The domain layer.
-  storage.py          TripStore protocol + InMemoryTripStore (swap for a real
-                       DB once services/api owns the trips schema).
+  trip_agent.py       System prompt + tool wiring + plan()/ask(). The domain layer.
+  storage.py          TripStore protocol + InMemoryTripStore -- candidates,
+                       itineraries, and per-trip_id conversation history for
+                       ask(). Swap for a real DB once services/api owns the
+                       trips schema.
   config.py           Settings, loaded from the repo-root .env.
   cli.py              `uv run agent "<constraints>"` for local runs.
   api.py              AG-UI endpoint (Starlette) -- `uv run uvicorn agent.api:app`.
@@ -49,10 +51,17 @@ pattern as `packages/agent-core`'s search capability. `save_candidates` and
 `publish_proposal` are always registered; they write into the in-memory
 `TripStore` for now.
 
-Model provider comes from the repo-root `.env`'s `MODEL_PROVIDER`/`MODEL`
-(currently `openai`/`gpt-5.6-sol`), mapped in `config.py` to a Pydantic AI
-`"provider:model"` string. Only `openai` and `anthropic` are wired up —
-extend `_PROVIDER_ENV_VARS` there before using another provider.
+Model provider comes from the repo-root `.env`'s `AGENT_MODEL_PROVIDER`/
+`AGENT_MODEL` (falling back to the shared `MODEL_PROVIDER`/`MODEL` that
+`apps/channel`/`apps/web` use if unset), mapped in `config.py` to a Pydantic
+AI `"provider:model"` string. Currently `openrouter` /
+`thinkingmachines/inkling-small`. `openai`, `anthropic`, and `deepseek` are
+also wired up — extend `_PROVIDER_ENV_VARS` there before using another one.
+
+`plan()` produces a full itinerary in one shot. `ask()` is a running
+conversation per `trip_id` -- each call's messages are appended to
+`TripStore`, so a follow-up ("how much does that cost?") sees the prior
+answer instead of starting fresh. `plan()` does not share that history.
 
 ## Run it
 
@@ -85,11 +94,21 @@ uv run pytest
 No API keys required; every external call is mocked, and the end-to-end
 loop test uses Pydantic AI's built-in `test` model (`Agent('test')`).
 
+## Used by backend/
+
+`backend/` (a separate FastAPI project) installs this as an editable
+dependency (`-e ../services/agent` in `backend/requirements.txt`) and calls
+`TripAgent.ask()` in-process from `POST /api/groups/{id}/ask` — see
+`backend/app/services/agent_bridge.py` and `backend/README.md`. `group_id`
+is passed straight through as `trip_id`, so the group *is* the session; no
+separate agent-side session concept exists.
+
 ## Not built yet
 
 - `services/api` — the HTTP layer (`POST /trips/:id/plan`, auth, webhook
-  endpoints) that will front this agent for Slack and web, if the AG-UI
-  path above doesn't end up covering that need directly.
+  endpoints) that would front this agent for Slack and web, if the AG-UI
+  path above and the backend/ bridge above don't end up covering that need.
 - A real `TripStore` backed by the `trips` / `candidate_places` /
-  `itinerary_options` tables from the architecture doc.
+  `itinerary_options` tables from the architecture doc (currently in-memory
+  only -- conversation history and candidates are gone on restart).
 - `publish_proposal` pushing to Slack/web instead of just persisting.

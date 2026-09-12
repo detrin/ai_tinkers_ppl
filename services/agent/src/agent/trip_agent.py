@@ -124,15 +124,26 @@ class TripAgent:
     def ask(self, trip_id: str, question: str) -> str:
         """Answer a single question about a trip -- e.g. a rainy-day backup
         idea -- without producing a full itinerary. Reuses the same tools
-        and instructions as `plan`, just redirected via the user message."""
-        user_message = (
-            f"trip_id: {trip_id}\n"
-            "A group member has a quick question about their trip. Answer "
-            "it directly and concisely, using search_web if it needs "
-            "current information. Do not produce a full itinerary or call "
-            "save_candidates/publish_proposal unless the question actually "
-            "asks for one.\n"
-            f"Question: {question}"
-        )
-        result = self.agent.run_sync(user_message)
+        and instructions as `plan`, just redirected via the user message.
+
+        Follow-up questions for the same trip_id see prior Q&A: history is
+        kept in `self.store`, keyed by trip_id, so this is a running
+        conversation per trip rather than an isolated call each time.
+        """
+        history = self.store.get_messages(trip_id)
+        if history:
+            prompt = question
+        else:
+            prompt = (
+                f"trip_id: {trip_id}\n"
+                "A group member has a quick question about their trip. "
+                "Answer it directly and concisely, using search_web if it "
+                "needs current information. Do not produce a full "
+                "itinerary or call save_candidates/publish_proposal unless "
+                "the question actually asks for one.\n"
+                f"Question: {question}"
+            )
+
+        result = self.agent.run_sync(prompt, message_history=history)
+        self.store.save_messages(trip_id, result.all_messages())
         return result.output
