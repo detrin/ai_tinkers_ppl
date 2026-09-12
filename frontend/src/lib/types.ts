@@ -88,6 +88,8 @@ export interface Plan {
   routing_provider: "openrouteservice" | "osrm" | "straight-line";
   ranked_by: "ai" | "heuristic";
   summary: string;
+  /** What somebody said that visibly changed this route. */
+  constraints_applied: string[];
 }
 
 export interface Group {

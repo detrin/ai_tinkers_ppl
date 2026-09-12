@@ -854,3 +854,171 @@ def test_trip_memory_accepts_only_known_media(client):
     media = client.post(f"/api/groups/{group['id']}/media", json={"filename": "group-selfie.jpg"}).json()
     memory = client.post(f"/api/groups/{group['id']}/memories", json={"title": "First dinner", "description": "We all met.", "media_ids": [media["id"]]}).json()
     assert memory["media_ids"] == [media["id"]]
+
+
+# ---------------------------------------------------------------------------
+# Planning around what each traveller said
+# ---------------------------------------------------------------------------
+def _member(name, **kwargs):
+    from app.models import Member
+
+    return Member(id=name.lower(), display_name=name, joined_at=0.0, **kwargs)
+
+
+def test_the_walking_limit_comes_from_the_least_mobile_person():
+    from app.services import accessibility
+
+    limit, notes = accessibility.walking_limit(
+        [
+            _member("Ana", constraints=["no long walks please"]),
+            _member("Bo", constraints=["uses a wheelchair"]),
+            _member("Cy", constraints=["happy with anything"]),
+        ]
+    )
+    # A group walks together, so the tightest limit wins.
+    assert limit == 400
+    assert any("Ana" in n for n in notes) and any("Bo" in n for n in notes)
+
+
+def test_an_unconstrained_group_has_no_walking_limit():
+    from app.services import accessibility
+
+    limit, notes = accessibility.walking_limit(
+        [_member("Ana", preferences=["long walks", "hiking"])]
+    )
+    assert limit is None
+    assert notes == []
+
+
+def test_every_leg_of_a_limited_route_is_within_the_limit():
+    """The limit is satisfied by construction, not by trimming and hoping.
+
+    Trimming is what fails: drop the middle stop of A-B-C and the new A-C leg
+    can be longer than either of the two it replaced.
+    """
+    from app.services import planner
+
+    distances = [
+        #        meet   near  near2   far
+        [0, 300, 400, 5000],
+        [300, 0, 200, 4800],
+        [400, 200, 0, 4700],
+        [5000, 4800, 4700, 0],
+    ]
+    order = planner._route_within_limit(distances, limit=900)
+
+    assert order[0] == 0
+    assert 3 not in order  # the far stop is unreachable within the limit
+    for i in range(1, len(order)):
+        assert distances[order[i - 1]][order[i]] <= 900
+
+
+def test_a_trimmed_route_would_have_broken_the_limit():
+    """Guards the bug this replaced: the old trim left a 3 km leg behind."""
+    from app.services import planner
+
+    # Dropping the middle stop joins 0 and 2 into a leg longer than the limit.
+    distances = [
+        [0, 500, 2400],
+        [500, 0, 500],
+        [2400, 500, 0],
+    ]
+    order = planner._route_within_limit(distances, limit=900)
+    for i in range(1, len(order)):
+        assert distances[order[i - 1]][order[i]] <= 900
+    # It keeps both stops by going through the middle one, rather than dropping it.
+    assert order == [0, 1, 2]
+
+
+def test_an_unreachable_route_says_so_instead_of_pretending(client):
+    group = client.post("/api/groups", json={"name": "G", "city": "Prague"}).json()
+    gid = group["id"]
+    ana = client.post(
+        f"/api/groups/{gid}/members", json={"display_name": "Ana"}
+    ).json()
+    client.patch(
+        f"/api/groups/{gid}/members/{ana['id']}/preferences",
+        json={"constraints": ["uses a wheelchair"]},
+    )
+
+    plan = client.post(f"/api/groups/{gid}/plan", json={"max_stops": 4}).json()
+    notes = " ".join(plan["constraints_applied"])
+
+    if plan["stops"]:
+        longest = max(s["distance_from_previous_m"] for s in plan["stops"])
+        # Either every leg fits, or the plan admits that it does not.
+        assert longest <= 400 or "nothing lies within" in notes
+    assert "Ana" in notes
+
+
+def test_the_plan_reports_which_constraint_changed_it(client):
+    group = client.post(
+        "/api/groups", json={"name": "G", "city": "Prague"}
+    ).json()
+    gid = group["id"]
+    ana = client.post(
+        f"/api/groups/{gid}/members", json={"display_name": "Ana"}
+    ).json()
+    client.patch(
+        f"/api/groups/{gid}/members/{ana['id']}/preferences",
+        json={"constraints": ["bad knee today"]},
+    )
+
+    plan = client.post(f"/api/groups/{gid}/plan", json={"max_stops": 4}).json()
+    # The group is told what was applied, rather than it happening silently.
+    assert any("Ana" in note for note in plan["constraints_applied"])
+    assert any("bad knee" in note for note in plan["constraints_applied"])
+
+
+def test_a_preference_only_one_person_voiced_still_steers_the_heuristic(monkeypatch):
+    """Without a model, one person's stated want still moves the scoring.
+
+    It lifts a place rather than trumping everything: a cafe somebody asked for
+    should not outrank Prague Castle, and it does not.
+    """
+    monkeypatch.setattr(ranking.settings, "anthropic_api_key", None)
+    places = _fixture_places()
+
+    def score_of(name, travelers):
+        picked, _summary, _source = asyncio.run(
+            ranking.rank_places(places, [], 1, "Prague", 5, travelers=travelers)
+        )
+        return next(p.score for p in picked if p.name == name)
+
+    plain = score_of("Cafe Slavia", [])
+    wanted = score_of("Cafe Slavia", [_member("Ana", preferences=["cafe"])])
+
+    assert wanted > plain
+    # And the landmark still leads the route.
+    picked, _s, _b = asyncio.run(
+        ranking.rank_places(
+            places, [], 1, "Prague", 5, travelers=[_member("Ana", preferences=["cafe"])]
+        )
+    )
+    assert picked[0].name == "Prague Castle"
+
+
+def test_travellers_reach_the_model_in_their_own_words(monkeypatch):
+    monkeypatch.setattr(ranking.settings, "anthropic_api_key", "test-key")
+    captured = {}
+
+    async def fake_call(prompt):
+        captured["prompt"] = prompt
+        return {"summary": "ok", "picks": [
+            {"id": "node/1", "score": 0.9, "reason": "Ana asked for it", "suggested_minutes": 30}
+        ]}
+
+    monkeypatch.setattr(ranking, "_call_claude", fake_call)
+    asyncio.run(
+        ranking.rank_places(
+            _fixture_places(), ["history"], 2, "Prague", 1,
+            travelers=[
+                _member("Ana", preferences=["museums"], constraints=["bad knee"], budget=120.0),
+                _member("Bo", preferences=["beer"]),
+            ],
+        )
+    )
+
+    prompt = captured["prompt"]
+    for expected in ["Ana", "museums", "bad knee", "120 EUR", "Bo", "beer"]:
+        assert expected in prompt, f"{expected!r} never reached the model"

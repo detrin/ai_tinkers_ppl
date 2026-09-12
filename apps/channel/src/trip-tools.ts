@@ -110,6 +110,30 @@ export const proposeItinerary = defineChannelTool({
   },
 });
 
+export const askTravelAgent = defineChannelTool({
+  name: "ask_travel_agent",
+  description:
+    "Ask the Trip Agent a free-text question about an existing travel group: research a place, get a rainy-day backup, or add a place as a candidate ('add the National Gallery as a candidate'). Requires the group's id, not its join code -- get it from create_travel_group or lookup_travel_group first. Remembers earlier questions asked for the same group, so this can be a running conversation.",
+  parameters: z.object({
+    groupId: z
+      .string()
+      .min(1)
+      .describe("The group's id field (not the six-character join code)."),
+    question: z
+      .string()
+      .min(1)
+      .max(500)
+      .describe("The question or request, in plain language."),
+  }),
+  async handler({ groupId, question }) {
+    return await tripRequest(`/api/groups/${encodeURIComponent(groupId)}/ask`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+  },
+});
+
 export const organizeTravelMedia = defineChannelTool({
   name: "organize_travel_media",
   description: "Classify a photo or file already shared by the user and attach its metadata to a trip. Do not claim image contents you cannot see.",

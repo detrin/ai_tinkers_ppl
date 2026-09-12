@@ -48,6 +48,7 @@ export interface Plan {
   routing_provider: string;
   ranked_by: string;
   summary: string;
+  constraints_applied: string[];
 }
 
 export interface Proposal {

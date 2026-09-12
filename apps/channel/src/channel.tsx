@@ -4,7 +4,7 @@ import { makeChannelAgent } from "./agent";
 import { required } from "./env";
 import { IncidentCard, Timeline, TripCard, welcomeMessage } from "./components";
 import { proposeAction, readThread, searchTheWeb } from "./tools";
-import { addTripMemory, buildPackingList, createConsensusPoll, createTravelGroup, lookupTravelGroup, organizeTravelMedia, prepareLocalGuideSearch, proposeExpense, proposeItinerary } from "./trip-tools";
+import { addTripMemory, askTravelAgent, buildPackingList, createConsensusPoll, createTravelGroup, lookupTravelGroup, organizeTravelMedia, prepareLocalGuideSearch, proposeExpense, proposeItinerary } from "./trip-tools";
 
 // Tools are registered only when their credential is present, so the agent is
 // never handed a tool that will fail when it calls it.
@@ -19,6 +19,7 @@ const tools = [
   buildPackingList,
   prepareLocalGuideSearch,
   addTripMemory,
+  askTravelAgent,
   proposeAction,
   ...(isSearchConfigured() ? [searchTheWeb] : []),
 ];
@@ -54,7 +55,7 @@ export const channel = createChannel({
     {
       description: "Group travel",
       value:
-        "You coordinate specialist travel workflows. For every explicit request to create a group, you MUST call create_travel_group during that turn—even if an earlier attempt failed; never repeat a cached failure without retrying the tool. Use lookup_travel_group for a real six-character code. For an itinerary request, look up the group and call propose_trip_itinerary; state clearly that it still needs human approval in the web dashboard. Media classification must reflect only visible/user-stated facts. Expenses are proposals until a person approves them in the web dashboard. Use polls for disagreements, packing lists for preparation, prepare_local_guide_search plus search_web for current nearby help, and add_trip_memory only for confirmed events. Always use real backend ids and never invent a booking, payment, photo detail, vote, or memory.",
+        "You coordinate specialist travel workflows. Only create a group after an explicit user request; for each such request, call create_travel_group even if an earlier attempt failed. Use lookup_travel_group for a real six-character code and use the returned group id in subsequent tools. For trip research, rainy-day alternatives, or adding a place as a candidate, use ask_travel_agent; it remembers earlier questions for the same group. For structured actions, use the dedicated tools: propose_trip_itinerary for an itinerary proposal, propose_trip_expense for expense splits, create_consensus_poll for disagreements, build_packing_list for preparation, organize_travel_media for supplied media, and add_trip_memory for confirmed events. Do not also send the same structured action to ask_travel_agent. Itineraries and expenses remain proposals until human approval in the web dashboard. For an explicit live web search use search_web; prepare_local_guide_search can supply a location-aware search prompt. Media classification must reflect only visible or user-stated facts. Always return real backend ids and never invent a booking, payment, photo detail, vote, or memory.",
     },
   ],
 

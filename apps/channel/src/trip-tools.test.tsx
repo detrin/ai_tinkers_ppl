@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
-import { createTravelGroup, lookupTravelGroup, prepareLocalGuideSearch, proposeExpense, proposeItinerary } from "./trip-tools";
+import { askTravelAgent, createTravelGroup, lookupTravelGroup, prepareLocalGuideSearch, proposeExpense, proposeItinerary } from "./trip-tools";
 
 const originalFetch = globalThis.fetch;
 
@@ -52,6 +52,29 @@ describe("shared trip backend tools", () => {
       {} as never,
     );
     assert.deepEqual(result, { id: "group-1", join_code: "ABC234" });
+  });
+
+  it("asks the trip agent and returns its answer", async () => {
+    globalThis.fetch = mock.fn(async (url, init) => {
+      assert.equal(url, "http://127.0.0.1:8000/api/groups/group-1/ask");
+      assert.equal(init?.method, "POST");
+      assert.deepEqual(JSON.parse(String(init?.body)), {
+        question: "Any rainy-day backup?",
+      });
+      return Response.json({
+        question: "Any rainy-day backup?",
+        answer: "Try the National Gallery.",
+      });
+    }) as typeof fetch;
+
+    const result = await askTravelAgent.handler(
+      { groupId: "group-1", question: "Any rainy-day backup?" },
+      {} as never,
+    );
+    assert.deepEqual(result, {
+      question: "Any rainy-day backup?",
+      answer: "Try the National Gallery.",
+    });
   });
 
   it("returns a controlled error when the backend is unavailable", async () => {
