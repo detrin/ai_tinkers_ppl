@@ -4,9 +4,12 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, HTTPException, Query
+from starlette.concurrency import run_in_threadpool
 
 from ..hub import hub
 from ..models import (
+    AskRequest,
+    AskResponse,
     City,
     CreateGroupRequest,
     Group,
@@ -17,7 +20,7 @@ from ..models import (
     PlanRequest,
     PositionRequest,
 )
-from ..services import geocode, planner
+from ..services import agent_bridge, geocode, planner
 from ..services import places as places_service
 from ..store import store
 
@@ -201,3 +204,30 @@ async def get_plan(group_id: str) -> Plan:
     if group.plan is None:
         raise HTTPException(status_code=404, detail="this group has no plan yet")
     return group.plan
+
+
+# ---------------------------------------------------------------------------
+# Trip Agent: advisory Q&A (services/agent), separate from the structured
+# Plan above -- a free-text answer, not a new itinerary.
+# ---------------------------------------------------------------------------
+def _contextualize(group: Group, question: str) -> str:
+    interests = ", ".join(group.interests) if group.interests else "no stated interests"
+    return f"The group is in {group.city.display_name} (interests: {interests}). {question}"
+
+
+@router.post("/groups/{group_id}/ask", response_model=AskResponse)
+async def ask_agent(group_id: str, request: AskRequest) -> AskResponse:
+    group = _require_group(group_id)
+
+    try:
+        answer = await run_in_threadpool(
+            agent_bridge.ask, group_id, _contextualize(group, request.question)
+        )
+    except agent_bridge.AgentNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    await hub.broadcast(
+        group_id,
+        {"type": "agent_note", "question": request.question, "answer": answer},
+    )
+    return AskResponse(question=request.question, answer=answer)
