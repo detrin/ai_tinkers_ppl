@@ -179,8 +179,18 @@ async def create_plan(group_id: str, request: PlanRequest) -> Plan:
         )
 
     await store.set_plan(group_id, plan, plan.meeting_point)
+
+    # A new plan moves the meeting point, so every member's distances change.
+    # Ship them with the plan; otherwise the group sees stale numbers until
+    # somebody happens to move.
+    annotated = planner.annotate_members(group)
     await hub.broadcast(
-        group_id, {"type": "plan", "plan": plan.model_dump(mode="json")}
+        group_id,
+        {
+            "type": "plan",
+            "plan": plan.model_dump(mode="json"),
+            "members": [m.model_dump(mode="json") for m in annotated.members],
+        },
     )
     return plan
 

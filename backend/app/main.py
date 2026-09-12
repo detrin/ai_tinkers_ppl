@@ -7,13 +7,19 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .routers import groups, realtime
 from .services import http
+
+# The built React app, if it has been compiled. `npm run build` in frontend/.
+FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s"
@@ -55,6 +61,16 @@ app.add_middleware(
 
 app.include_router(groups.router)
 app.include_router(realtime.router)
+
+
+# The map UI, when it is checked out next to the backend. Mounted under /ui so
+# it can never shadow an API route.
+if FRONTEND_DIR.is_dir():
+    app.mount("/ui", StaticFiles(directory=FRONTEND_DIR, html=True), name="ui")
+
+    @app.get("/", include_in_schema=False)
+    async def home() -> RedirectResponse:
+        return RedirectResponse("/ui/")
 
 
 @app.get("/health", tags=["meta"])

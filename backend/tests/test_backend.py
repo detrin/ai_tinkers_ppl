@@ -468,6 +468,28 @@ def test_websocket_broadcasts_positions_between_members(client):
             assert bo_ws.receive_json()["type"] == "pong"
 
 
+def test_plan_broadcast_carries_refreshed_member_distances(client):
+    group = client.post("/api/groups", json={"name": "G", "city": "Prague"}).json()
+    gid = group["id"]
+    ana = client.post(f"/api/groups/{gid}/members", json={"display_name": "Ana"}).json()
+
+    with client.websocket_connect(f"/ws/groups/{gid}?member_id={ana['id']}") as socket:
+        assert socket.receive_json()["type"] == "snapshot"
+
+        socket.send_json({"type": "position", "lat": 50.0865, "lon": 14.4180})
+        first = socket.receive_json()
+        assert first["type"] == "position"
+        # No plan yet, so there is no meeting point to measure against.
+        assert first["distance_to_meeting_m"] is None
+
+        client.post(f"/api/groups/{gid}/plan", json={"max_stops": 2})
+        event = socket.receive_json()
+        assert event["type"] == "plan"
+        # The same event refreshes the distances the member list renders.
+        assert event["members"][0]["distance_to_meeting_m"] is not None
+        assert event["members"][0]["distance_to_next_stop_m"] is not None
+
+
 def test_websocket_rejects_an_unknown_member(client):
     group = client.post("/api/groups", json={"name": "G", "city": "Prague"}).json()
     with pytest.raises(Exception):

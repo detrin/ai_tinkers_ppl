@@ -23,6 +23,10 @@ Interactive docs: <http://127.0.0.1:8000/docs>. Provider status: `GET /health`.
 pytest tests -q
 ```
 
+If `../frontend` has been built with `npm run build`, the same server also hosts
+the map UI: <http://127.0.0.1:8000/> redirects to it at `/ui/`. Mounting it
+under a prefix keeps it from ever shadowing an API route.
+
 ## The flow
 
 ```
@@ -116,5 +120,5 @@ app/
   routers/
     groups.py        REST
     realtime.py      WebSocket
-tests/               21 tests, no network
+tests/               22 tests, no network
 ```
