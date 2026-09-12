@@ -454,6 +454,21 @@ def test_ask_returns_the_agent_answer(client, monkeypatch):
     assert "history" in calls["question"]
 
 
+def test_a_missing_agent_package_does_not_take_the_backend_down(monkeypatch):
+    """services/agent is optional. Importing it eagerly would mean every
+    endpoint in this backend dies when it is not installed, so the bridge
+    imports lazily and reports the same 503 a missing key does."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "agent", None)  # makes `import agent` fail
+    agent_bridge._trip_agent.cache_clear()
+
+    with pytest.raises(agent_bridge.AgentNotConfigured):
+        agent_bridge.ask("trip", "anything")
+
+    agent_bridge._trip_agent.cache_clear()
+
+
 def test_ask_is_503_when_the_agent_has_no_provider_key(client, monkeypatch):
     def fake_ask(trip_id: str, question: str) -> str:
         raise agent_bridge.AgentNotConfigured("OPENROUTER_API_KEY is not set")

@@ -138,5 +138,5 @@ app/
   routers/
     groups.py        REST
     realtime.py      WebSocket
-tests/               22 tests, no network
+tests/               23 tests, no network
 ```

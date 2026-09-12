@@ -15,9 +15,10 @@ app/services/ranking.py), it should only fail the one request that needed it.
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
-from agent import TripAgent
-from agent.config import Settings as AgentSettings
+if TYPE_CHECKING:  # the real import happens lazily, inside _trip_agent
+    from agent import TripAgent
 
 
 class AgentNotConfigured(RuntimeError):
@@ -26,6 +27,17 @@ class AgentNotConfigured(RuntimeError):
 
 @lru_cache(maxsize=1)
 def _trip_agent() -> TripAgent:
+    # Imported here, not at module scope: services/agent is an optional extra,
+    # and importing it eagerly takes the whole backend down when it is not
+    # installed. A missing package degrades exactly like a missing key.
+    try:
+        from agent import TripAgent
+        from agent.config import Settings as AgentSettings
+    except ImportError as exc:
+        raise AgentNotConfigured(
+            "the Trip Agent is not installed; pip install -e ../services/agent"
+        ) from exc
+
     try:
         settings = AgentSettings.from_env()
     except RuntimeError as exc:
