@@ -1,7 +1,9 @@
 import { AbstractAgent } from "@ag-ui/client";
-import type { BaseEvent, RunAgentInput } from "@ag-ui/core";
+import { EventType, type BaseEvent, type RunAgentInput } from "@ag-ui/core";
 import { makeAgent } from "agent-core";
 import { Observable, type Subscription } from "rxjs";
+import { logChannel, safeError } from "./diagnostics";
+import { failedReceipt, hasCompletedReply } from "./completed-reply";
 
 type ChannelAgentFactory = (threadId: string) => AbstractAgent;
 
@@ -28,6 +30,23 @@ export class ChannelRunAgent extends AbstractAgent {
 
   override run(input: RunAgentInput): Observable<BaseEvent> {
     return new Observable<BaseEvent>((subscriber) => {
+      const receiptError = failedReceipt(input.messages);
+      if (receiptError) {
+        subscriber.next({ type: EventType.RUN_STARTED, threadId: input.threadId, runId: input.runId } as BaseEvent);
+        subscriber.next({ type: EventType.RUN_ERROR, message: receiptError } as BaseEvent);
+        subscriber.complete();
+        return;
+      }
+      if (hasCompletedReply(input.messages)) {
+        logChannel("reply.already_posted", { runId: input.runId });
+        subscriber.next({ type: EventType.RUN_STARTED, threadId: input.threadId, runId: input.runId } as BaseEvent);
+        subscriber.next({ type: EventType.RUN_FINISHED, threadId: input.threadId, runId: input.runId } as BaseEvent);
+        subscriber.complete();
+        return;
+      }
+      const started = Date.now();
+      const meta = { runId: input.runId, messages: input.messages.length };
+      logChannel("model.start", meta);
       let inner: AbstractAgent | undefined;
       let subscription: Subscription | undefined;
 
@@ -43,13 +62,21 @@ export class ChannelRunAgent extends AbstractAgent {
         this.activeInner = inner;
         subscription = inner.run(input).subscribe({
           next: (event) => {
+            if (event.type === "TOOL_CALL_START") {
+              logChannel("model.tool", { ...meta, tool: (event as BaseEvent & { toolCallName: string }).toolCallName });
+            }
+            if (event.type === "RUN_ERROR") {
+              logChannel("model.error", { ...meta, elapsedMs: Date.now() - started, error: safeError((event as BaseEvent & { message: string }).message) });
+            }
             subscriber.next(event);
           },
           error: (error) => {
+            logChannel("model.error", { ...meta, elapsedMs: Date.now() - started, error: safeError(error) });
             release();
             subscriber.error(error);
           },
           complete: () => {
+            logChannel("model.complete", { ...meta, elapsedMs: Date.now() - started });
             release();
             subscriber.complete();
           },
@@ -81,5 +108,13 @@ export class ChannelRunAgent extends AbstractAgent {
 }
 
 export function makeChannelAgent(threadId: string) {
-  return new ChannelRunAgent(makeAgent, threadId);
+  // Keep the Slack surface focused on the explicitly registered channel tools.
+  // Loading the entire Ambiguous workspace here exposes hundreds of MCP tools
+  // on every mention, which can make small/cheap models stall before answering.
+  // Ambiguous writes remain available through the web app's narrow,
+  // approval-based integration.
+  return new ChannelRunAgent(
+    (innerThreadId) => makeAgent(innerThreadId, { workplace: false }),
+    threadId,
+  );
 }

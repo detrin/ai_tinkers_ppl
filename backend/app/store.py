@@ -15,7 +15,10 @@ from pathlib import Path
 from .config import settings
 from .models import (
     City,
+    Expense,
     Group,
+    MediaItem,
+    MemoryEntry,
     Member,
     MemberPosition,
     Plan,
@@ -24,6 +27,7 @@ from .models import (
     SlackThread,
     Transport,
     TripMessage,
+    TripPoll,
 )
 
 _ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no look-alike characters
@@ -339,6 +343,87 @@ class GroupStore:
             if transport is not None:
                 group.transport = transport
             self._save()
+
+    # -- specialist workflows ---------------------------------------------
+    async def add_media(self, group_id: str, item: MediaItem) -> MediaItem | None:
+        async with self._lock:
+            group = self._groups.get(group_id)
+            if group is None:
+                return None
+            group.media.append(item)
+            self._save()
+            return item
+
+    async def add_expense(self, group_id: str, expense: Expense) -> Expense | None:
+        async with self._lock:
+            group = self._groups.get(group_id)
+            if group is None:
+                return None
+            group.expenses.append(expense)
+            self._save()
+            return expense
+
+    async def decide_expense(self, group_id: str, expense_id: str, status: str, decided_by: str | None) -> Expense | None:
+        async with self._lock:
+            group = self._groups.get(group_id)
+            if group is None:
+                return None
+            expense = next((e for e in group.expenses if e.id == expense_id), None)
+            if expense is None:
+                return None
+            expense.status = status  # type: ignore[assignment]
+            expense.decided_at = time.time()
+            expense.decided_by = decided_by
+            self._save()
+            return expense
+
+    async def add_poll(self, group_id: str, poll: TripPoll) -> TripPoll | None:
+        async with self._lock:
+            group = self._groups.get(group_id)
+            if group is None:
+                return None
+            group.polls.append(poll)
+            self._save()
+            return poll
+
+    async def vote(self, group_id: str, poll_id: str, option_id: str, voter_id: str) -> TripPoll | None:
+        async with self._lock:
+            group = self._groups.get(group_id)
+            if group is None:
+                return None
+            poll = next((p for p in group.polls if p.id == poll_id), None)
+            if poll is None or poll.status != "open":
+                return None
+            option = next((o for o in poll.options if o.id == option_id), None)
+            if option is None:
+                return None
+            for candidate in poll.options:
+                candidate.voter_ids = [v for v in candidate.voter_ids if v != voter_id]
+            option.voter_ids.append(voter_id)
+            self._save()
+            return poll
+
+    async def close_poll(self, group_id: str, poll_id: str) -> TripPoll | None:
+        async with self._lock:
+            group = self._groups.get(group_id)
+            if group is None:
+                return None
+            poll = next((p for p in group.polls if p.id == poll_id), None)
+            if poll is None:
+                return None
+            poll.status = "closed"
+            poll.winner_option_id = max(poll.options, key=lambda o: len(o.voter_ids)).id
+            self._save()
+            return poll
+
+    async def add_memory(self, group_id: str, entry: MemoryEntry) -> MemoryEntry | None:
+        async with self._lock:
+            group = self._groups.get(group_id)
+            if group is None:
+                return None
+            group.memories.append(entry)
+            self._save()
+            return entry
 
 
 store = GroupStore(settings.state_file)

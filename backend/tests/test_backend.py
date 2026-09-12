@@ -790,6 +790,73 @@ def test_an_approval_reaches_the_other_surface_over_the_socket(client):
 
 
 # ---------------------------------------------------------------------------
+# Specialist travel workflows
+# ---------------------------------------------------------------------------
+def _specialist_group(client):
+    group = client.post("/api/groups", json={"name": "Specialists", "city": "Prague", "interests": ["food", "walking"]}).json()
+    ana = client.post(f"/api/groups/{group['id']}/members", json={"display_name": "Ana"}).json()
+    bo = client.post(f"/api/groups/{group['id']}/members", json={"display_name": "Bo"}).json()
+    return group, ana, bo
+
+
+def test_media_organizer_classifies_receipts_and_persists_metadata(client):
+    group, _ana, _bo = _specialist_group(client)
+    item = client.post(f"/api/groups/{group['id']}/media", json={"filename": "dinner-receipt.jpg", "location": "Old Town", "day": 1}).json()
+    assert item["category"] == "receipt"
+    saved = client.get(f"/api/groups/{group['id']}").json()
+    assert saved["media"][0]["location"] == "Old Town"
+
+
+def test_expense_is_only_counted_after_approval_and_splits_exactly(client):
+    group, ana, bo = _specialist_group(client)
+    expense = client.post(f"/api/groups/{group['id']}/expenses", json={
+        "title": "Dinner", "amount": 10.01, "paid_by": ana["id"],
+        "participant_ids": [ana["id"], bo["id"]],
+    }).json()
+    assert expense["status"] == "proposed"
+    assert sum(expense["shares"].values()) == 10.01
+    assert client.get(f"/api/groups/{group['id']}/balances").json()["balances"] == {}
+    client.post(f"/api/groups/{group['id']}/expenses/{expense['id']}/approve", json={"decided_by": "Ana"})
+    balances = client.get(f"/api/groups/{group['id']}/balances").json()["balances"]
+    assert round(sum(balances.values()), 2) == 0
+
+
+def test_consensus_vote_moves_between_options_and_close_records_winner(client):
+    group, ana, _bo = _specialist_group(client)
+    poll = client.post(f"/api/groups/{group['id']}/polls", json={"question": "Dinner?", "options": ["Pizza", "Curry"]}).json()
+    first, second = poll["options"]
+    client.post(f"/api/groups/{group['id']}/polls/{poll['id']}/vote", json={"option_id": first["id"], "voter_id": ana["id"]})
+    moved = client.post(f"/api/groups/{group['id']}/polls/{poll['id']}/vote", json={"option_id": second["id"], "voter_id": ana["id"]}).json()
+    assert moved["options"][0]["voter_ids"] == []
+    closed = client.post(f"/api/groups/{group['id']}/polls/{poll['id']}/close").json()
+    assert closed["winner_option_id"] == second["id"]
+
+
+def test_packing_list_uses_weather_and_trip_interests(client):
+    group, _ana, _bo = _specialist_group(client)
+    result = client.post(f"/api/groups/{group['id']}/packing", json={"days": 3, "weather": "rain"}).json()
+    assert "waterproof jacket" in result["personal"]
+    assert "refillable water bottle" in result["personal"]
+
+
+def test_local_guide_returns_an_exa_ready_prompt_with_constraints(client):
+    group, ana, _bo = _specialist_group(client)
+    client.patch(f"/api/groups/{group['id']}/members/{ana['id']}/preferences", json={"constraints": ["limited walking"]})
+    result = client.get(f"/api/groups/{group['id']}/local-guide", params={"need": "rainy-day lunch"}).json()
+    assert "Prague" in result["search_prompt"]
+    assert "limited walking" in result["search_prompt"]
+
+
+def test_trip_memory_accepts_only_known_media(client):
+    group, _ana, _bo = _specialist_group(client)
+    bad = client.post(f"/api/groups/{group['id']}/memories", json={"title": "Dinner", "media_ids": ["missing"]})
+    assert bad.status_code == 422
+    media = client.post(f"/api/groups/{group['id']}/media", json={"filename": "group-selfie.jpg"}).json()
+    memory = client.post(f"/api/groups/{group['id']}/memories", json={"title": "First dinner", "description": "We all met.", "media_ids": [media["id"]]}).json()
+    assert memory["media_ids"] == [media["id"]]
+
+
+# ---------------------------------------------------------------------------
 # Planning around what each traveller said
 # ---------------------------------------------------------------------------
 def _member(name, **kwargs):

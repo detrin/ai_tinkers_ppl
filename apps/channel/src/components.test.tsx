@@ -11,7 +11,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { renderToIR } from "@copilotkit/channels";
-import { IncidentCard, Timeline } from "./components";
+import { IncidentCard, Timeline, TripCard } from "./components";
 
 const ctx = { platform: "slack" as const, signal: new AbortController().signal };
 
@@ -28,6 +28,16 @@ const baseIncident = {
   known: [] as string[],
   trying: [] as string[],
 };
+
+describe("trip_card", () => {
+  it("renders confirmed facts, open decisions, and the real join code", async () => {
+    const out = await render(TripCard.render({ title: "Prague Weekend", destination: "Prague", joinCode: "ABC234", travelers: 4, confirmed: ["Vegetarian-friendly"], undecided: ["Saturday dinner"], nextAction: "Vote on dinner" }, ctx));
+    assert.ok(out.includes("ABC234"));
+    assert.ok(out.includes("Vegetarian-friendly"));
+    assert.ok(out.includes("Saturday dinner"));
+    assert.ok(out.includes("Vote on dinner"));
+  });
+});
 
 describe("incident_card", () => {
   it("colours the rail by severity, so the channel can triage by glance", async () => {

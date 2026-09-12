@@ -27,10 +27,10 @@ export async function searchWeb({ query, results }: SearchWebArgs): Promise<Sear
   }
 
   const exa = new Exa(apiKey);
-  const response = await exa.searchAndContents(query, {
+  const response = await exa.search(query, {
     type: SEARCH_TYPE,
     numResults: results,
-    highlights: { numSentences: 2, highlightsPerUrl: 1 },
+    contents: { highlights: true },
   });
 
   return response.results.map((hit) => ({

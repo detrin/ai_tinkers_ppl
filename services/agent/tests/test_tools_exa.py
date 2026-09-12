@@ -44,6 +44,7 @@ def test_search_maps_results_to_flat_dicts(monkeypatch: pytest.MonkeyPatch) -> N
     assert captured["url"] == "https://api.exa.ai/search"
     assert captured["json"]["query"] == "best cafes in prague"
     assert captured["json"]["type"] == "fast"
+    assert captured["json"]["contents"] == {"highlights": True}
     assert results == [
         {
             "title": "Cafe Savoy",

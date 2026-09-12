@@ -15,7 +15,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .routers import groups, realtime, trips
+from .routers import groups, realtime, specialists, trips
 from .services import http
 
 # The built React app, if it has been compiled. `npm run build` in frontend/.
@@ -61,6 +61,7 @@ app.add_middleware(
 
 app.include_router(groups.router)
 app.include_router(trips.router)
+app.include_router(specialists.router)
 app.include_router(realtime.router)
 
 

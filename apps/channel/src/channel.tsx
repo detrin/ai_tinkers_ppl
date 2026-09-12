@@ -1,10 +1,13 @@
 import { createChannel } from "@copilotkit/channels";
-import { isSearchConfigured, isWorkplaceConfigured, WORKPLACE_CONTEXT } from "agent-core";
+import { isSearchConfigured } from "agent-core";
 import { makeChannelAgent } from "./agent";
 import { required } from "./env";
-import { IncidentCard, Timeline, welcomeMessage } from "./components";
+import { logChannel, safeError } from "./diagnostics";
+import { postLookupReply, simpleLookupCode } from "./fast-replies";
+import { lookupTrip } from "./trip-tools";
+import { IncidentCard, Timeline, TripCard, welcomeMessage } from "./components";
 import { proposeAction, readThread, searchTheWeb } from "./tools";
-import { askTravelAgent, createTravelGroup, lookupTravelGroup } from "./trip-tools";
+import { addTripMemory, askTravelAgent, buildPackingList, createConsensusPoll, createTravelGroup, lookupTravelGroup, organizeTravelMedia, prepareLocalGuideSearch, proposeExpense, proposeItinerary } from "./trip-tools";
 
 // Tools are registered only when their credential is present, so the agent is
 // never handed a tool that will fail when it calls it.
@@ -12,6 +15,13 @@ const tools = [
   readThread,
   createTravelGroup,
   lookupTravelGroup,
+  proposeItinerary,
+  organizeTravelMedia,
+  proposeExpense,
+  createConsensusPoll,
+  buildPackingList,
+  prepareLocalGuideSearch,
+  addTripMemory,
   askTravelAgent,
   proposeAction,
   ...(isSearchConfigured() ? [searchTheWeb] : []),
@@ -29,8 +39,9 @@ export const channel = createChannel({
   identifyUser: "platform",
 
   agent: makeChannelAgent,
+  showToolStatus: true,
   tools,
-  components: [IncidentCard, Timeline],
+  components: [TripCard, IncidentCard, Timeline],
 
   // Injected into the agent's prompt on every run.
   context: [
@@ -38,11 +49,8 @@ export const channel = createChannel({
     {
       description: "Rendering",
       value:
-        "You can draw native UI by calling incident_card or timeline. Prefer them over prose whenever the answer has structure.",
+        "Draw trip summaries with trip_card and chronological trip memories with timeline. Prefer native cards over long prose.",
     },
-    ...(isWorkplaceConfigured()
-      ? [{ description: "Workplace", value: WORKPLACE_CONTEXT }]
-      : []),
     {
       description: "Surface",
       value:
@@ -51,7 +59,7 @@ export const channel = createChannel({
     {
       description: "Group travel",
       value:
-        "You help groups plan city trips. Use create_travel_group only after the user explicitly asks to create a shared group. Use lookup_travel_group when they provide a six-character join code. Always return the real join code from the backend; never invent one. The same group can be opened in the Group City Route web UI. Once a group exists in this thread, route any question about the trip -- researching a place, a rainy-day backup, or a request to add a place as a candidate -- through ask_travel_agent with that group's id. It remembers earlier questions for the same group, so treat it as a running conversation, not a one-off lookup.",
+        "You coordinate specialist travel workflows. Only create a group after an explicit user request; for each such request, call create_travel_group even if an earlier attempt failed. Use lookup_travel_group for a real six-character code and use the returned group id in subsequent tools. For trip research, rainy-day alternatives, or adding a place as a candidate, use ask_travel_agent; it remembers earlier questions for the same group. For structured actions, use the dedicated tools: propose_trip_itinerary for an itinerary proposal, propose_trip_expense for expense splits, create_consensus_poll for disagreements, build_packing_list for preparation, organize_travel_media for supplied media, and add_trip_memory for confirmed events. Do not also send the same structured action to ask_travel_agent. Itineraries and expenses remain proposals until human approval in the web dashboard. For an explicit live web search use search_web; prepare_local_guide_search can supply a location-aware search prompt. Media classification must reflect only visible or user-stated facts. Always return real backend ids and never invent a booking, payment, photo detail, vote, or memory.",
     },
   ],
 
@@ -59,16 +67,44 @@ export const channel = createChannel({
 
 // A mention subscribes the conversation, so the agent then follows along instead
 // of needing to be @-mentioned every single turn.
-channel.onMention(async ({ thread }) => {
-  await thread.subscribe();
-  await thread.runAgent();
+channel.onMention(async ({ thread, message }) => {
+  const started = Date.now();
+  logChannel("mention.received");
+  try {
+    await thread.subscribe();
+    const code = simpleLookupCode(message.text ?? "");
+    if (code) {
+      await postLookupReply(thread, code, lookupTrip);
+      logChannel("lookup.complete", { elapsedMs: Date.now() - started });
+      return;
+    }
+    await thread.runAgent();
+    logChannel("mention.complete", { elapsedMs: Date.now() - started });
+  } catch (error) {
+    logChannel("mention.failed", { elapsedMs: Date.now() - started, error: safeError(error) });
+    throw error;
+  }
 });
 
 // Non-mentioned turns only ever reach onMessage — gate them on the flag or the
 // agent will answer every message in every channel it has been invited to.
-channel.onMessage(async ({ thread }) => {
-  if (await thread.isSubscribed()) {
-    await thread.runAgent();
+channel.onMessage(async ({ thread, message }) => {
+  const started = Date.now();
+  try {
+    if (await thread.isSubscribed()) {
+      logChannel("message.received");
+      const code = simpleLookupCode(message.text ?? "");
+      if (code) {
+        await postLookupReply(thread, code, lookupTrip);
+        logChannel("lookup.complete", { elapsedMs: Date.now() - started });
+        return;
+      }
+      await thread.runAgent();
+      logChannel("message.complete", { elapsedMs: Date.now() - started });
+    }
+  } catch (error) {
+    logChannel("message.failed", { elapsedMs: Date.now() - started, error: safeError(error) });
+    throw error;
   }
 });
 

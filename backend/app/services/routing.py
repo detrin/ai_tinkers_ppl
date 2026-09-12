@@ -144,4 +144,3 @@ def order_stops(cost: Matrix, start: int = 0) -> list[int]:
                     order = candidate
                     improved = True
     return order
-
