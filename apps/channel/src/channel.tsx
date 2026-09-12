@@ -4,7 +4,7 @@ import { makeChannelAgent } from "./agent";
 import { required } from "./env";
 import { IncidentCard, Timeline, welcomeMessage } from "./components";
 import { proposeAction, readThread, searchTheWeb } from "./tools";
-import { createTravelGroup, lookupTravelGroup } from "./trip-tools";
+import { askTravelAgent, createTravelGroup, lookupTravelGroup } from "./trip-tools";
 
 // Tools are registered only when their credential is present, so the agent is
 // never handed a tool that will fail when it calls it.
@@ -12,6 +12,7 @@ const tools = [
   readThread,
   createTravelGroup,
   lookupTravelGroup,
+  askTravelAgent,
   proposeAction,
   ...(isSearchConfigured() ? [searchTheWeb] : []),
 ];
@@ -50,7 +51,7 @@ export const channel = createChannel({
     {
       description: "Group travel",
       value:
-        "You help groups plan city trips. Use create_travel_group only after the user explicitly asks to create a shared group. Use lookup_travel_group when they provide a six-character join code. Always return the real join code from the backend; never invent one. The same group can be opened in the Group City Route web UI.",
+        "You help groups plan city trips. Use create_travel_group only after the user explicitly asks to create a shared group. Use lookup_travel_group when they provide a six-character join code. Always return the real join code from the backend; never invent one. The same group can be opened in the Group City Route web UI. Once a group exists in this thread, route any question about the trip -- researching a place, a rainy-day backup, or a request to add a place as a candidate -- through ask_travel_agent with that group's id. It remembers earlier questions for the same group, so treat it as a running conversation, not a one-off lookup.",
     },
   ],
 
