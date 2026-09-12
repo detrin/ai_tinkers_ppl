@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app.geo import haversine_m, meeting_point, straight_line_matrix  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import Place  # noqa: E402
-from app.services import geocode, planner, ranking, routing  # noqa: E402
+from app.services import agent_bridge, geocode, planner, ranking, routing  # noqa: E402
 from app.services import places as places_service  # noqa: E402
 from app.store import store  # noqa: E402
 
@@ -422,6 +422,53 @@ def test_plan_is_readable_after_it_is_generated(client):
     assert client.get(f"/api/groups/{group['id']}/plan").status_code == 404
     client.post(f"/api/groups/{group['id']}/plan", json={"max_stops": 2})
     assert client.get(f"/api/groups/{group['id']}/plan").status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Trip Agent advisory Q&A (services/agent, bridged in app/services/agent_bridge.py)
+# ---------------------------------------------------------------------------
+def test_ask_returns_the_agent_answer(client, monkeypatch):
+    calls = {}
+
+    def fake_ask(trip_id: str, question: str) -> str:
+        calls["trip_id"] = trip_id
+        calls["question"] = question
+        return "Try the National Technical Museum if it rains."
+
+    monkeypatch.setattr(agent_bridge, "ask", fake_ask)
+
+    group = client.post(
+        "/api/groups", json={"name": "G", "city": "Prague", "interests": ["history"]}
+    ).json()
+    response = client.post(
+        f"/api/groups/{group['id']}/ask", json={"question": "Rainy day backup?"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["question"] == "Rainy day backup?"
+    assert body["answer"] == "Try the National Technical Museum if it rains."
+    # The group's city and interests ride along as context, not just the raw question.
+    assert calls["trip_id"] == group["id"]
+    assert "Prague" in calls["question"]
+    assert "history" in calls["question"]
+
+
+def test_ask_is_503_when_the_agent_has_no_provider_key(client, monkeypatch):
+    def fake_ask(trip_id: str, question: str) -> str:
+        raise agent_bridge.AgentNotConfigured("OPENROUTER_API_KEY is not set")
+
+    monkeypatch.setattr(agent_bridge, "ask", fake_ask)
+
+    group = client.post("/api/groups", json={"name": "G", "city": "Prague"}).json()
+    response = client.post(f"/api/groups/{group['id']}/ask", json={"question": "?"})
+
+    assert response.status_code == 503
+
+
+def test_ask_404s_for_an_unknown_group(client):
+    response = client.post("/api/groups/does-not-exist/ask", json={"question": "?"})
+    assert response.status_code == 404
 
 
 def test_unknown_group_is_a_404(client):

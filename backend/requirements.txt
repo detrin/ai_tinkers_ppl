@@ -4,3 +4,9 @@ httpx>=0.27
 pydantic>=2.7
 python-dotenv>=1.0
 anthropic>=0.40
+
+# Trip Agent: Exa-grounded advisory Q&A layered on a group (see
+# app/services/agent_bridge.py). Editable install of the sibling uv project;
+# pulls in pydantic-ai and its own deps. Missing provider keys degrade the
+# /ask endpoint to a 503, same as every other optional integration here.
+-e ../services/agent

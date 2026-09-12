@@ -120,3 +120,19 @@ class TripAgent:
         user_message = f"trip_id: {trip_id}\nConstraints: {constraints}"
         result = self.agent.run_sync(user_message)
         return result.output
+
+    def ask(self, trip_id: str, question: str) -> str:
+        """Answer a single question about a trip -- e.g. a rainy-day backup
+        idea -- without producing a full itinerary. Reuses the same tools
+        and instructions as `plan`, just redirected via the user message."""
+        user_message = (
+            f"trip_id: {trip_id}\n"
+            "A group member has a quick question about their trip. Answer "
+            "it directly and concisely, using search_web if it needs "
+            "current information. Do not produce a full itinerary or call "
+            "save_candidates/publish_proposal unless the question actually "
+            "asks for one.\n"
+            f"Question: {question}"
+        )
+        result = self.agent.run_sync(user_message)
+        return result.output

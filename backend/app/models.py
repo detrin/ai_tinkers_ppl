@@ -143,4 +143,13 @@ class PlanRequest(BaseModel):
     start_from: Point | None = None  # override the computed meeting point
 
 
+class AskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=500)
+
+
+class AskResponse(BaseModel):
+    question: str
+    answer: str
+
+
 Group.model_rebuild()

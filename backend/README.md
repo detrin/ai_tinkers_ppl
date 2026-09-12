@@ -35,11 +35,29 @@ POST /api/groups/{id}/members        display name ->  member id
 PUT  /api/groups/{id}/members/{m}/position        ->  broadcast to the group
 POST /api/groups/{id}/plan           interests    ->  ordered, measured itinerary
 WS   /ws/groups/{id}?member_id={m}                ->  live positions and plan updates
+POST /api/groups/{id}/ask            question     ->  Trip Agent's free-text answer
 ```
 
 Supporting endpoints: `GET /api/cities/resolve?q=Prague` resolves a city name,
 and `GET /api/places?city=Prague` returns the raw candidate list for a search
 screen, before any group exists.
+
+## `POST /groups/{id}/ask` — the Trip Agent
+
+A separate, additive path alongside `POST /plan`: a free-text question in
+("any good rainy-day backup?"), a free-text answer out, with the group's city
+and interests riding along as context. It does not touch `Group.plan` -- it's
+an advisory sidecar (chat/notes panel), not a second itinerary pipeline, so
+it stays independent of the Overpass/Claude/routing flow above.
+
+Backed by [`services/agent`](../services/agent), a separate uv-managed
+Pydantic AI project installed here as an editable dependency (see
+`requirements.txt`) so the call is in-process, not a network hop to another
+service. It reads its own `AGENT_MODEL_PROVIDER`/`AGENT_MODEL`/API key from
+the repo-root `.env` (see `services/agent/README.md`) -- nothing to
+configure here. Without a configured provider key, `/ask` returns `503`
+rather than failing the rest of this backend; every other integration here
+degrades the same way (see below).
 
 ## What happens inside `POST /plan`
 

@@ -68,3 +68,11 @@ def test_plan_runs_the_full_loop_against_the_builtin_test_model() -> None:
     assert isinstance(output, str) and output
     # save_candidates ran (against whatever placeholder trip_id TestModel generated).
     assert len(agent.store) > 0
+
+
+def test_ask_runs_against_the_builtin_test_model() -> None:
+    agent = TripAgent(_settings())
+
+    output = agent.ask("trip-1", "Any rainy-day backup if it storms Saturday?")
+
+    assert isinstance(output, str) and output
