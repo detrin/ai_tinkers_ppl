@@ -76,3 +76,20 @@ def test_ask_runs_against_the_builtin_test_model() -> None:
     output = agent.ask("trip-1", "Any rainy-day backup if it storms Saturday?")
 
     assert isinstance(output, str) and output
+
+
+def test_ask_keeps_conversation_history_per_trip_id() -> None:
+    agent = TripAgent(_settings())
+
+    agent.ask("trip-1", "Any rainy-day backup if it storms Saturday?")
+    first_len = len(agent.store.get_messages("trip-1"))
+    assert first_len > 0
+
+    # A follow-up on the same trip_id extends the same conversation.
+    agent.ask("trip-1", "What about something cheaper?")
+    second_len = len(agent.store.get_messages("trip-1"))
+    assert second_len > first_len
+
+    # A different trip_id gets its own, independent conversation.
+    agent.ask("trip-2", "Any tips for Vienna instead?")
+    assert len(agent.store.get_messages("trip-2")) < second_len

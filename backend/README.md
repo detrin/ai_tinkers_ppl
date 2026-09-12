@@ -50,6 +50,11 @@ and interests riding along as context. It does not touch `Group.plan` -- it's
 an advisory sidecar (chat/notes panel), not a second itinerary pipeline, so
 it stays independent of the Overpass/Claude/routing flow above.
 
+It's a running conversation per group, not a one-shot call: a follow-up like
+"how much does that cost?" resolves against the group's own prior questions
+and answers. History is kept in-process, keyed by `group_id` (same lifetime
+as everything else here -- gone on restart, see `PERSIST_STATE` above).
+
 Backed by [`services/agent`](../services/agent), a separate uv-managed
 Pydantic AI project installed here as an editable dependency (see
 `requirements.txt`) so the call is in-process, not a network hop to another
