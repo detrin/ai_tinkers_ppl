@@ -48,6 +48,7 @@ export default function App() {
   const [sharing, setSharing] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
   const [focusedStop, setFocusedStop] = useState<{ index: number; nonce: number } | null>(
     null,
   );
@@ -200,6 +201,44 @@ export default function App() {
     if (group && !sharing) sendPosition(lat, lon);
   };
 
+  // Drops the session and returns to the setup screen, so the same tab can
+  // start a group of its own or join a different one.
+  const resetToSetup = () => {
+    try {
+      store().removeItem(STORE_KEY);
+    } catch {
+      /* private browsing */
+    }
+    setSession(null);
+    setGroup(null);
+    setConfirmLeave(false);
+    setSharing(false);
+    if (watchId.current != null) {
+      navigator.geolocation.clearWatch(watchId.current);
+      watchId.current = null;
+    }
+  };
+
+  const handleLeave = async () => {
+    if (!group || !session) return;
+    try {
+      await api.leaveGroup(group.id, session.memberId);
+    } catch {
+      // The server may already have dropped us. Either way the UI must let go,
+      // otherwise a stale membership traps this tab in a group it cannot use.
+    }
+    resetToSetup();
+  };
+
+  // Somebody removed us from the far side: fall back to the setup screen
+  // rather than sitting in a group we are no longer part of.
+  useEffect(() => {
+    if (!group || !session) return;
+    if (!group.members.some((member) => member.id === session.memberId)) {
+      resetToSetup();
+    }
+  }, [group, session]);
+
   const copyCode = async () => {
     if (!group) return;
     try {
@@ -242,15 +281,48 @@ export default function App() {
         </header>
 
         {group ? (
-          <section className="code-row">
-            <div>
-              <span className="label">Join code</span>
-              <strong className="code">{group.join_code}</strong>
-            </div>
-            <button type="button" className="ghost-btn" onClick={() => void copyCode()}>
-              {copied ? "Copied" : "Copy"}
-            </button>
-          </section>
+          <>
+            <section className="code-row">
+              <div>
+                <span className="label">Join code</span>
+                <strong className="code">{group.join_code}</strong>
+              </div>
+              <button type="button" className="ghost-btn" onClick={() => void copyCode()}>
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </section>
+            <p className="hint">Share this code so others can join this city.</p>
+
+            {confirmLeave ? (
+              <div className="leave-confirm">
+                <span>Leave {group.name}?</span>
+                <span className="leave-actions">
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    onClick={() => setConfirmLeave(false)}
+                  >
+                    Stay
+                  </button>
+                  <button
+                    type="button"
+                    className="danger-btn"
+                    onClick={() => void handleLeave()}
+                  >
+                    Leave
+                  </button>
+                </span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => setConfirmLeave(true)}
+              >
+                Leave this group
+              </button>
+            )}
+          </>
         ) : null}
 
         {!group ? (

@@ -178,5 +178,5 @@ app/
     groups.py        REST
     trips.py         Slack mapping, travellers, messages, approvals
     realtime.py      WebSocket
-tests/               37 tests, no network
+tests/               39 tests, no network
 ```
