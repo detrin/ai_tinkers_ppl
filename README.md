@@ -10,7 +10,9 @@
 
 </div>
 
-## This project: a group trip planner
+## SomeJoy: a group trip planner
+
+**Plan the trip in the chat you're already having.**
 
 This repository is the starter kit above, built into a group trip planner for
 the hackathon. People plan a city trip in a Slack thread; the agent records what
