@@ -1,4 +1,4 @@
-import type { Group, Member, Plan } from "./types";
+import type { Expense, Group, Member, PackingList, Plan, TripPoll } from "./types";
 
 /** Same-origin by default: Vite proxies to the backend in dev, and the backend
  *  serves the built files in production. Override with VITE_API_URL if you host
@@ -65,6 +65,21 @@ export const api = {
     request<Plan>(`/api/groups/${groupId}/plan`, {
       method: "POST",
       body: JSON.stringify(input),
+    }),
+
+  decideExpense: (groupId: string, expenseId: string, decision: "approve" | "decline", decidedBy: string) =>
+    request<Expense>(`/api/groups/${groupId}/expenses/${expenseId}/${decision}`, {
+      method: "POST", body: JSON.stringify({ decided_by: decidedBy }),
+    }),
+
+  vote: (groupId: string, pollId: string, optionId: string, voterId: string) =>
+    request<TripPoll>(`/api/groups/${groupId}/polls/${pollId}/vote`, {
+      method: "POST", body: JSON.stringify({ option_id: optionId, voter_id: voterId }),
+    }),
+
+  packing: (groupId: string, days = 2, weather = "unknown") =>
+    request<PackingList>(`/api/groups/${groupId}/packing`, {
+      method: "POST", body: JSON.stringify({ days, weather }),
     }),
 };
 

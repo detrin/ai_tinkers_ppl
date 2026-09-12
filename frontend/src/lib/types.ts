@@ -48,7 +48,18 @@ export interface Member {
   position: MemberPosition | null;
   distance_to_meeting_m: number | null;
   distance_to_next_stop_m: number | null;
+  budget?: number | null;
+  currency?: string;
+  preferences?: string[];
+  constraints?: string[];
 }
+
+export interface MediaItem { id: string; filename: string; category: string; note: string; location: string | null; day: number | null; }
+export interface Expense { id: string; title: string; amount: number; currency: string; paid_by: string; participant_ids: string[]; shares: Record<string, number>; status: "proposed" | "approved" | "declined"; }
+export interface PollOption { id: string; label: string; voter_ids: string[]; }
+export interface TripPoll { id: string; question: string; options: PollOption[]; status: "open" | "closed"; winner_option_id: string | null; }
+export interface MemoryEntry { id: string; title: string; description: string; occurred_at: number; media_ids: string[]; }
+export interface PackingList { personal: string[]; shared: string[]; assumptions: string[]; }
 
 export interface Stop {
   order: number;
@@ -90,6 +101,10 @@ export interface Group {
   members: Member[];
   meeting_point: Point | null;
   plan: Plan | null;
+  media: MediaItem[];
+  expenses: Expense[];
+  polls: TripPoll[];
+  memories: MemoryEntry[];
 }
 
 /** Everything the server can push down the group socket. */

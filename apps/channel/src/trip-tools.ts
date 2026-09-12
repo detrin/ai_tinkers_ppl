@@ -73,3 +73,115 @@ export const lookupTravelGroup = defineChannelTool({
   },
 });
 
+const groupId = z.string().min(1).describe("The real group id returned by create or lookup; never invent it.");
+
+export const proposeItinerary = defineChannelTool({
+  name: "propose_trip_itinerary",
+  description:
+    "Generate and persist a proposed itinerary for a real travel group. This never approves the itinerary; approval or rejection happens in the web dashboard.",
+  parameters: z.object({
+    groupId,
+    interests: z.array(z.string().min(1)).optional(),
+    maxStops: z.number().int().min(1).max(12).default(5),
+    transport: z.enum(["foot", "bike", "car"]).optional(),
+    radiusM: z.number().int().min(250).max(20_000).optional(),
+    estimatedCost: z.number().nonnegative().optional(),
+    currency: z.string().length(3).default("EUR"),
+    assumptions: z.array(z.string().min(1)).default([]),
+    note: z.string().max(500).default(""),
+  }),
+  async handler({
+    groupId,
+    maxStops,
+    radiusM,
+    estimatedCost,
+    ...rest
+  }) {
+    return await tripRequest(`/api/groups/${encodeURIComponent(groupId)}/proposals`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...rest,
+        max_stops: maxStops,
+        radius_m: radiusM,
+        estimated_cost: estimatedCost,
+      }),
+    });
+  },
+});
+
+export const organizeTravelMedia = defineChannelTool({
+  name: "organize_travel_media",
+  description: "Classify a photo or file already shared by the user and attach its metadata to a trip. Do not claim image contents you cannot see.",
+  parameters: z.object({
+    groupId,
+    filename: z.string().min(1).max(240),
+    category: z.enum(["landmark", "food", "group_photo", "ticket", "booking", "receipt", "other"]).optional(),
+    note: z.string().max(1000).default(""),
+    location: z.string().max(160).optional(),
+    day: z.number().int().min(1).max(60).optional(),
+  }),
+  async handler({ groupId, ...body }) {
+    return await tripRequest(`/api/groups/${encodeURIComponent(groupId)}/media`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+  },
+});
+
+export const proposeExpense = defineChannelTool({
+  name: "propose_trip_expense",
+  description: "Propose an expense and calculate an exact equal split. This does not approve the expense; tell the user to approve it in the web dashboard.",
+  parameters: z.object({
+    groupId, title: z.string().min(1).max(120), amount: z.number().positive(),
+    currency: z.string().length(3).default("EUR"), paidBy: z.string().min(1),
+    participantIds: z.array(z.string().min(1)).min(1), mediaId: z.string().optional(),
+  }),
+  async handler({ groupId, paidBy, participantIds, mediaId, ...rest }) {
+    return await tripRequest(`/api/groups/${encodeURIComponent(groupId)}/expenses`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...rest, paid_by: paidBy, participant_ids: participantIds, media_id: mediaId }),
+    });
+  },
+});
+
+export const createConsensusPoll = defineChannelTool({
+  name: "create_consensus_poll",
+  description: "Create a persistent group poll when travelers have multiple options. Voting happens in the web dashboard.",
+  parameters: z.object({ groupId, question: z.string().min(1).max(300), options: z.array(z.string().min(1)).min(2).max(10) }),
+  async handler({ groupId, ...body }) {
+    return await tripRequest(`/api/groups/${encodeURIComponent(groupId)}/polls`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+  },
+});
+
+export const buildPackingList = defineChannelTool({
+  name: "build_packing_list",
+  description: "Generate a deterministic personal and shared packing list from trip length, destination, interests, and stated weather.",
+  parameters: z.object({ groupId, days: z.number().int().min(1).max(60).default(2), weather: z.string().max(120).default("unknown") }),
+  async handler({ groupId, ...body }) {
+    return await tripRequest(`/api/groups/${encodeURIComponent(groupId)}/packing`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+  },
+});
+
+export const prepareLocalGuideSearch = defineChannelTool({
+  name: "prepare_local_guide_search",
+  description: "Build a location-aware web search prompt using the trip and traveler constraints. After calling this, call search_web with search_prompt for current sources.",
+  parameters: z.object({ groupId, need: z.string().min(1).max(200) }),
+  async handler({ groupId, need }) {
+    return await tripRequest(`/api/groups/${encodeURIComponent(groupId)}/local-guide?need=${encodeURIComponent(need)}`);
+  },
+});
+
+export const addTripMemory = defineChannelTool({
+  name: "add_trip_memory",
+  description: "Add a confirmed moment to the persistent trip timeline. Use only for something the group explicitly says happened; never invent memories.",
+  parameters: z.object({ groupId, title: z.string().min(1).max(120), description: z.string().max(1000).default(""), mediaIds: z.array(z.string()).default([]) }),
+  async handler({ groupId, mediaIds, ...body }) {
+    return await tripRequest(`/api/groups/${encodeURIComponent(groupId)}/memories`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, media_ids: mediaIds }),
+    });
+  },
+});

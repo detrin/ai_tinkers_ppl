@@ -39,11 +39,13 @@ export function workplaceMcpServers(): MCPClientConfig[] {
       type: "http",
       url: AMBIGUOUS_MCP_URL,
       options: {
-        fetch: (url, init) =>
-          fetch(url, {
-            ...init,
-            headers: { ...init?.headers, Authorization: `Bearer ${apiKey}` },
-          }),
+        fetch: (url, init) => {
+          // init.headers is commonly a Headers instance; object-spreading it
+          // silently drops Content-Type and makes the MCP server return 415.
+          const headers = new Headers(init?.headers);
+          headers.set("Authorization", `Bearer ${apiKey}`);
+          return fetch(url, { ...init, headers });
+        },
       },
     },
   ];

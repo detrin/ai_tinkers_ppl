@@ -81,5 +81,13 @@ export class ChannelRunAgent extends AbstractAgent {
 }
 
 export function makeChannelAgent(threadId: string) {
-  return new ChannelRunAgent(makeAgent, threadId);
+  // Keep the Slack surface focused on the explicitly registered channel tools.
+  // Loading the entire Ambiguous workspace here exposes hundreds of MCP tools
+  // on every mention, which can make small/cheap models stall before answering.
+  // Ambiguous writes remain available through the web app's narrow,
+  // approval-based integration.
+  return new ChannelRunAgent(
+    (innerThreadId) => makeAgent(innerThreadId, { workplace: false }),
+    threadId,
+  );
 }

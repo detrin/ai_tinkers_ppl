@@ -3,6 +3,7 @@ import { MapView } from "./components/MapView";
 import { SetupCard } from "./components/SetupCard";
 import { GroupPanel } from "./components/GroupPanel";
 import { RoutePanel } from "./components/RoutePanel";
+import { SpecialistsPanel } from "./components/SpecialistsPanel";
 import { api, ApiError } from "./lib/api";
 import { useGroupSocket } from "./lib/useGroupSocket";
 import type { ConnectionState, Group } from "./lib/types";
@@ -250,6 +251,11 @@ export default function App() {
     }
   };
 
+  const refreshGroup = async () => {
+    if (!group) return;
+    setGroup(await api.getGroup(group.id));
+  };
+
   return (
     <>
       <MapView
@@ -362,6 +368,7 @@ export default function App() {
                 setFocusedStop({ index, nonce: Date.now() })
               }
             />
+            <SpecialistsPanel group={group} memberId={session?.memberId ?? null} onRefresh={refreshGroup} />
           </>
         )}
 

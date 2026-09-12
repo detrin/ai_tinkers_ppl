@@ -28,9 +28,7 @@ class ExaClient:
                 "query": query,
                 "type": self._search_type,
                 "numResults": num_results,
-                "contents": {
-                    "highlights": {"numSentences": 2, "highlightsPerUrl": 1},
-                },
+                "contents": {"highlights": True},
             },
             timeout=20.0,
         )

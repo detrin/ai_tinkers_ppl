@@ -34,6 +34,28 @@ const SEVERITY = {
   resolved: { accent: "#2E7D5B", label: "RESOLVED" },
 } as const;
 
+export const TripCard = defineChannelComponent({
+  name: "trip_card",
+  description: "Draw a compact group-trip summary with destination, confirmed constraints, open decisions, and the next action.",
+  parameters: z.object({
+    title: z.string(), destination: z.string(), joinCode: z.string().optional(),
+    travelers: z.number().int().min(0),
+    confirmed: z.array(z.string()).max(6).default([]),
+    undecided: z.array(z.string()).max(6).default([]),
+    nextAction: z.string(),
+  }),
+  render({ title, destination, joinCode, travelers, confirmed, undecided, nextAction }) {
+    return <Message accent="#1F6FEB"><Header>{title}</Header><Fields>
+      <Field label="Destination">{destination}</Field><Field label="Travelers">{travelers}</Field>
+      {joinCode && <Field label="Join code">{joinCode}</Field>}
+    </Fields>
+      {confirmed.length > 0 && <Section><Markdown>{`*Confirmed*\n${confirmed.map((v) => `• ${v}`).join("\n")}`}</Markdown></Section>}
+      {undecided.length > 0 && <Section><Markdown>{`*Still to decide*\n${undecided.map((v) => `• ${v}`).join("\n")}`}</Markdown></Section>}
+      <Context>{`Next: ${nextAction}`}</Context>
+    </Message>;
+  },
+});
+
 /**
  * The state of the incident, as one glanceable card.
  *
@@ -128,18 +150,18 @@ export const Timeline = defineChannelComponent({
  */
 export function welcomeMessage(platform: string) {
   return (
-    <Message accent="#C4145F">
-      <Header>On-call assistant, in the thread</Header>
+    <Message accent="#1F6FEB">
+      <Header>Trip Planner, in the thread</Header>
       <Section>
         <Markdown>
-          {"When something breaks, @-mention me. I read what has already been said in this " +
+          {"Plan together here, then @-mention me. I read what has already been said in this " +
             platform +
-            " thread first — you should never have to re-explain an outage to me."}
+            " thread and sync the trip with the web dashboard."}
         </Markdown>
       </Section>
       <Fields>
-        <Field label="I will">Summarise, keep a timeline, look things up</Field>
-        <Field label="I won't">Touch production without a click</Field>
+        <Field label="I will">Plan, research, split costs, run polls, organize memories</Field>
+        <Field label="I won't">Book, pay, or approve expenses without a person</Field>
       </Fields>
       <Actions>
         <Button
@@ -148,7 +170,7 @@ export function welcomeMessage(platform: string) {
           onClick={async ({ thread }) => {
             await thread.runAgent({
               prompt:
-                "Read this thread and bring me up to speed on the incident. Draw the incident card.",
+                "Read this thread, summarize the trip, identify open decisions, and draw the trip card.",
             });
           }}
         >

@@ -59,6 +59,11 @@ How to work a trip:
   address.
 - **Say what you are unsure about.** Distinguish what the group told you, what
   you looked up, and what you are assuming.
+- **Delegate through specialist tools.** Organize user-supplied media without
+  inventing what an unseen image contains. Propose expenses and exact splits,
+  but leave approval to a human in the dashboard. Turn disagreements into
+  polls, prepare packing lists, ground local-guide answers with web search, and
+  add trip memories only after the group confirms that the event happened.
 `.trim();
 
 /** What `makeAgent` actually sends. Swap TRAVEL_ROLE for your own domain. */
