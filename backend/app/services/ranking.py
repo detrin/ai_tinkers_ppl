@@ -11,7 +11,7 @@ import logging
 from typing import Any, Sequence
 
 from ..config import settings
-from ..models import Place, RankedPlace
+from ..models import Member, Place, RankedPlace
 
 log = logging.getLogger(__name__)
 
@@ -53,8 +53,29 @@ _SYSTEM = (
     "- Respect the stated interests. With no interests given, favour landmarks "
     "a first-time visitor would regret missing.\n"
     "- Keep the picks geographically sensible; a group walks between them.\n"
+    "- The travellers matter individually. What each one wants and cannot do "
+    "comes from their own words in the group's conversation.\n"
+    "- A constraint beats a preference. If one person cannot walk far, keep the "
+    "whole route tight, even if that costs somebody else their first choice.\n"
+    "- Try to give every traveller at least one place they asked for, and say "
+    "whose it is in the reason.\n"
+    "- Watch the money. Where a budget is tight, favour places that are free or "
+    "cheap to enter.\n"
     "- suggested_minutes is time spent at the place, typically 20 to 90."
 )
+
+
+def _traveler_payload(travelers: Sequence[Member]) -> list[dict[str, Any]]:
+    """What the group said about each person, as the agent recorded it."""
+    return [
+        {
+            "name": t.display_name,
+            "wants": t.preferences,
+            "constraints": t.constraints,
+            "budget": None if t.budget is None else f"{t.budget:g} {t.currency}",
+        }
+        for t in travelers
+    ]
 
 
 def _candidate_payload(places: Sequence[Place]) -> list[dict[str, Any]]:
@@ -159,6 +180,7 @@ async def rank_places(
     group_size: int,
     city_name: str,
     max_stops: int,
+    travelers: Sequence[Member] = (),
 ) -> tuple[list[RankedPlace], str, str]:
     """Returns (picked places, summary, "ai" or "heuristic")."""
     if not places:
@@ -168,15 +190,25 @@ async def rank_places(
         :MAX_CANDIDATES_TO_MODEL
     ]
 
+    # Everything anyone asked for, whoever asked for it. Without the model, a
+    # preference one person voiced in the thread still steers the scoring.
+    wanted = list(interests) + [w for t in travelers for w in t.preferences]
+
     if not settings.ai_enabled:
-        picked, summary = heuristic_rank(places, interests, max_stops)
+        picked, summary = heuristic_rank(places, wanted, max_stops)
         return picked, summary, "heuristic"
 
     interest_text = ", ".join(interests) if interests else "not stated"
+    traveler_text = (
+        json.dumps(_traveler_payload(travelers), ensure_ascii=False)
+        if travelers
+        else "not stated"
+    )
     prompt = (
         f"City: {city_name}\n"
         f"Group size: {group_size}\n"
-        f"Interests: {interest_text}\n"
+        f"Interests the group picked: {interest_text}\n"
+        f"Travellers, in their own words:\n{traveler_text}\n\n"
         f"Pick exactly {min(max_stops, len(shortlist))} places.\n\n"
         f"Candidates:\n{json.dumps(_candidate_payload(shortlist), ensure_ascii=False)}"
     )
@@ -188,7 +220,7 @@ async def rank_places(
         data = None
 
     if not data or not data.get("picks"):
-        picked, summary = heuristic_rank(places, interests, max_stops)
+        picked, summary = heuristic_rank(places, wanted, max_stops)
         return picked, summary, "heuristic"
 
     by_id = {p.id: p for p in places}
@@ -212,7 +244,7 @@ async def rank_places(
             break
 
     if not picked:
-        picked, summary = heuristic_rank(places, interests, max_stops)
+        picked, summary = heuristic_rank(places, wanted, max_stops)
         return picked, summary, "heuristic"
 
     return picked, str(data.get("summary", ""))[:400], "ai"

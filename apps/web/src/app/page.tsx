@@ -203,6 +203,16 @@ export default function Home() {
                       {metres(trip.plan.total_distance_m)} walking ·{" "}
                       {minutes(trip.plan.total_travel_seconds)} on foot
                     </p>
+                    {trip.plan.constraints_applied.length ? (
+                      <>
+                        <h3>Why it looks like this</h3>
+                        <ul>
+                          {trip.plan.constraints_applied.map((note) => (
+                            <li key={note}>{note}</li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : null}
                   </>
                 ) : null}
 
