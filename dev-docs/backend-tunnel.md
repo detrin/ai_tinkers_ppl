@@ -12,7 +12,7 @@ itself at `/ui/` with relative asset paths and same-origin API calls -- see
 `frontend/vite.config.ts` and `frontend/src/lib/api.ts` -- so the same tunnel
 covers both with zero extra config.
 
-**Public URL: `https://trip-planner.hermandaniel.com`**
+**Public URL: `https://somejoy.hermandaniel.com`**
 
 ## This is a baton pass, not shared hosting
 
@@ -58,7 +58,7 @@ ingress config:
 // via the Cloudflare MCP / API, not something scripted here
 PUT /accounts/{account_id}/cfd_tunnel/{tunnel_id}/configurations
 { "config": { "ingress": [
-  { "hostname": "trip-planner.hermandaniel.com", "service": "http://localhost:8000" },
+  { "hostname": "somejoy.hermandaniel.com", "service": "http://localhost:8000" },
   { "service": "http_status:404" }
 ] } }
 ```
