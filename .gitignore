@@ -21,3 +21,8 @@ __pycache__/
 venv/
 .pytest_cache/
 backend/state.json
+
+# Added by CopilotKit CLI: managed Channel setup credentials and artifacts.
+.env.*
+!.env.example
+.copilotkit/artifacts/

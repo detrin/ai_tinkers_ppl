@@ -4,11 +4,14 @@ import { makeChannelAgent } from "./agent";
 import { required } from "./env";
 import { IncidentCard, Timeline, welcomeMessage } from "./components";
 import { proposeAction, readThread, searchTheWeb } from "./tools";
+import { createTravelGroup, lookupTravelGroup } from "./trip-tools";
 
 // Tools are registered only when their credential is present, so the agent is
 // never handed a tool that will fail when it calls it.
 const tools = [
   readThread,
+  createTravelGroup,
+  lookupTravelGroup,
   proposeAction,
   ...(isSearchConfigured() ? [searchTheWeb] : []),
 ];
@@ -43,6 +46,11 @@ export const channel = createChannel({
       description: "Surface",
       value:
         "This is a chat thread in a channel people are actively working in. Assume others are reading and that some joined late.",
+    },
+    {
+      description: "Group travel",
+      value:
+        "You help groups plan city trips. Use create_travel_group only after the user explicitly asks to create a shared group. Use lookup_travel_group when they provide a six-character join code. Always return the real join code from the backend; never invent one. The same group can be opened in the Group City Route web UI.",
     },
   ],
 
