@@ -14,7 +14,7 @@ apps/mobile/.expo/
 # Web approval and attempt metadata (not task storage)
 .data/
 
-# Python backend (backend/)
+# Python (backend/, services/agent/)
 __pycache__/
 *.py[cod]
 .venv/

@@ -1,0 +1,27 @@
+[project]
+name = "agent"
+version = "0.1.0"
+description = "Trip Agent service: research, validate, and propose group trip itineraries"
+readme = "README.md"
+authors = [
+    { name = "Daniel Herman", email = "daniel.herman@protonmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.1",
+    "pydantic-ai-slim[ag-ui,openai]>=2.43.0",
+    "python-dotenv>=1.2.3",
+    "uvicorn>=0.52.4",
+]
+
+[project.scripts]
+agent = "agent.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
