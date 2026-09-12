@@ -559,3 +559,196 @@ def test_websocket_rejects_an_unknown_member(client):
             f"/ws/groups/{group['id']}?member_id=nobody"
         ) as socket:
             socket.receive_json()
+
+
+# ---------------------------------------------------------------------------
+# Cross-surface trip state (GROUP_TRAVEL_AGENTS.md)
+# ---------------------------------------------------------------------------
+SLACK_THREAD = {
+    "workspace_id": "T123",
+    "channel_id": "C456",
+    "thread_id": "1726000000.0001",
+}
+
+
+def _slack_trip(client, **overrides):
+    body = {**SLACK_THREAD, "name": "Prague weekend", "city": "Prague", **overrides}
+    return client.post("/api/trips/by-slack-thread", json=body)
+
+
+def test_a_slack_thread_maps_to_one_trip_however_often_it_is_delivered(client):
+    first = _slack_trip(client)
+    assert first.status_code == 201
+
+    # Slack redelivers, and every mention calls this. It must not fan out into
+    # a new trip each time.
+    second = _slack_trip(client)
+    assert second.status_code == 200
+    assert second.json()["id"] == first.json()["id"]
+
+    found = client.get("/api/trips/by-slack-thread", params=SLACK_THREAD)
+    assert found.status_code == 200
+    assert found.json()["id"] == first.json()["id"]
+
+
+def test_a_different_thread_in_the_same_channel_is_a_different_trip(client):
+    first = _slack_trip(client).json()
+    other = _slack_trip(client, thread_id="1726000000.9999").json()
+    assert other["id"] != first["id"]
+
+
+def test_an_unmapped_thread_is_a_404(client):
+    missing = client.get(
+        "/api/trips/by-slack-thread",
+        params={"workspace_id": "T1", "channel_id": "C1", "thread_id": "nope"},
+    )
+    assert missing.status_code == 404
+
+
+def test_traveler_preferences_merge_instead_of_overwriting(client):
+    group = _slack_trip(client).json()
+    ana = client.post(
+        f"/api/groups/{group['id']}/members", json={"display_name": "Ana"}
+    ).json()
+
+    client.patch(
+        f"/api/groups/{group['id']}/members/{ana['id']}/preferences",
+        json={"preferences": ["museums"], "budget": 120, "slack_user_id": "U1"},
+    )
+    # A later message mentions one constraint. The budget heard earlier must
+    # survive it.
+    updated = client.patch(
+        f"/api/groups/{group['id']}/members/{ana['id']}/preferences",
+        json={"preferences": ["food"], "constraints": ["arrives late Friday"]},
+    ).json()
+
+    assert updated["preferences"] == ["museums", "food"]
+    assert updated["constraints"] == ["arrives late Friday"]
+    assert updated["budget"] == 120
+    assert updated["slack_user_id"] == "U1"
+
+
+def test_a_replayed_slack_message_is_stored_once(client):
+    group = _slack_trip(client).json()
+    body = {
+        "source": "slack",
+        "source_message_id": "1726000001.0002",
+        "author_name": "Bo",
+        "text": "I land at 9pm on Friday",
+    }
+
+    first = client.post(f"/api/groups/{group['id']}/messages", json=body)
+    replay = client.post(f"/api/groups/{group['id']}/messages", json=body)
+
+    assert first.status_code == 201
+    assert replay.status_code == 200
+    assert replay.json()["id"] == first.json()["id"]
+
+    stored = client.get(f"/api/groups/{group['id']}/messages").json()
+    assert len(stored) == 1
+
+
+def test_a_proposal_is_not_the_plan_until_it_is_approved(client):
+    group = _slack_trip(client).json()
+    gid = group["id"]
+
+    proposal = client.post(
+        f"/api/groups/{gid}/proposals",
+        json={"max_stops": 2, "assumptions": ["everyone walks"]},
+    )
+    assert proposal.status_code == 201
+    assert proposal.json()["status"] == "proposed"
+    assert proposal.json()["plan"]["stops"]
+
+    # Proposing built an itinerary but changed nothing the group is doing.
+    assert client.get(f"/api/groups/{gid}/plan").status_code == 404
+
+    approved = client.post(
+        f"/api/groups/{gid}/proposals/{proposal.json()['id']}/approve",
+        json={"decided_by": "Ana"},
+    )
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "approved"
+    assert approved.json()["decided_by"] == "Ana"
+
+    # And now the same shared state both surfaces read has the itinerary.
+    plan = client.get(f"/api/groups/{gid}/plan")
+    assert plan.status_code == 200
+    assert plan.json()["stops"] == proposal.json()["plan"]["stops"]
+
+
+def test_declining_writes_no_itinerary(client):
+    group = _slack_trip(client).json()
+    gid = group["id"]
+    proposal = client.post(f"/api/groups/{gid}/proposals", json={"max_stops": 2}).json()
+
+    declined = client.post(
+        f"/api/groups/{gid}/proposals/{proposal['id']}/decline", json={}
+    )
+    assert declined.status_code == 200
+    assert declined.json()["status"] == "declined"
+    assert client.get(f"/api/groups/{gid}/plan").status_code == 404
+
+
+def test_approving_the_same_proposal_twice_changes_nothing_further(client):
+    group = _slack_trip(client).json()
+    gid = group["id"]
+    proposal = client.post(f"/api/groups/{gid}/proposals", json={"max_stops": 2}).json()
+
+    first = client.post(f"/api/groups/{gid}/proposals/{proposal['id']}/approve", json={})
+    decided_at = first.json()["decided_at"]
+
+    # A redelivered button press is not an error and does not re-decide.
+    again = client.post(f"/api/groups/{gid}/proposals/{proposal['id']}/approve", json={})
+    assert again.status_code == 200
+    assert again.json()["decided_at"] == decided_at
+
+
+def test_an_idempotency_key_does_not_stack_up_proposals(client):
+    group = _slack_trip(client).json()
+    gid = group["id"]
+    body = {"max_stops": 2, "idempotency_key": "slack-button-1"}
+
+    first = client.post(f"/api/groups/{gid}/proposals", json=body)
+    replay = client.post(f"/api/groups/{gid}/proposals", json=body)
+
+    assert first.status_code == 201
+    assert replay.status_code == 200
+    assert replay.json()["id"] == first.json()["id"] == "slack-button-1"
+    assert len(client.get(f"/api/groups/{gid}/proposals").json()) == 1
+
+
+def test_approving_a_second_itinerary_supersedes_the_first(client):
+    group = _slack_trip(client).json()
+    gid = group["id"]
+    one = client.post(f"/api/groups/{gid}/proposals", json={"max_stops": 2}).json()
+    two = client.post(f"/api/groups/{gid}/proposals", json={"max_stops": 3}).json()
+
+    client.post(f"/api/groups/{gid}/proposals/{one['id']}/approve", json={})
+    client.post(f"/api/groups/{gid}/proposals/{two['id']}/approve", json={})
+
+    by_id = {p["id"]: p for p in client.get(f"/api/groups/{gid}/proposals").json()}
+    assert by_id[one["id"]]["status"] == "declined"
+    assert by_id[two["id"]]["status"] == "approved"
+    # The group follows exactly one itinerary.
+    assert len(client.get(f"/api/groups/{gid}/plan").json()["stops"]) == len(
+        two["plan"]["stops"]
+    )
+
+
+def test_an_approval_reaches_the_other_surface_over_the_socket(client):
+    group = _slack_trip(client).json()
+    gid = group["id"]
+    ana = client.post(
+        f"/api/groups/{gid}/members", json={"display_name": "Ana"}
+    ).json()
+    proposal = client.post(f"/api/groups/{gid}/proposals", json={"max_stops": 2}).json()
+
+    with client.websocket_connect(f"/ws/groups/{gid}?member_id={ana['id']}") as socket:
+        assert socket.receive_json()["type"] == "snapshot"
+        client.post(f"/api/groups/{gid}/proposals/{proposal['id']}/approve", json={})
+
+        event = socket.receive_json()
+        assert event["type"] == "proposal_decision"
+        assert event["proposal"]["status"] == "approved"
+        assert event["plan"]["stops"]

@@ -59,6 +59,9 @@ class MemberPosition(BaseModel):
 
 
 class Member(BaseModel):
+    """A traveller. `preferences` and `constraints` are what the Slack agent
+    extracts from the conversation; the planner reads them back."""
+
     id: str
     display_name: str
     joined_at: float
@@ -67,6 +70,58 @@ class Member(BaseModel):
     # Filled in by the API so the group can see how far apart everyone is.
     distance_to_meeting_m: float | None = None
     distance_to_next_stop_m: float | None = None
+    # Identity on the surface the traveller arrived from.
+    slack_user_id: str | None = None
+    budget: float | None = None
+    currency: str = "EUR"
+    preferences: list[str] = []
+    constraints: list[str] = []
+
+
+class SlackThread(BaseModel):
+    """Where a trip is being discussed.
+
+    Identified by workspace, channel and thread ids, never by channel name:
+    names are renamed freely and would silently remap a trip.
+    """
+
+    workspace_id: str
+    channel_id: str
+    thread_id: str
+
+    @property
+    def key(self) -> str:
+        return f"{self.workspace_id}/{self.channel_id}/{self.thread_id}"
+
+
+class TripMessage(BaseModel):
+    id: str
+    source: Literal["slack", "web"]
+    source_message_id: str | None = None
+    author_id: str | None = None
+    author_name: str | None = None
+    text: str
+    created_at: float
+
+
+class Proposal(BaseModel):
+    """An itinerary put forward for the group to accept or reject.
+
+    A proposal is never the group's plan. Only approving one makes it so, which
+    is the approval boundary every consequential write goes through.
+    """
+
+    id: str
+    status: Literal["proposed", "approved", "declined"] = "proposed"
+    created_at: float
+    created_by: str | None = None
+    decided_at: float | None = None
+    decided_by: str | None = None
+    plan: "Plan"
+    estimated_cost: float | None = None
+    currency: str = "EUR"
+    assumptions: list[str] = []
+    note: str = ""
 
 
 class Group(BaseModel):
@@ -80,6 +135,9 @@ class Group(BaseModel):
     members: list[Member] = []
     meeting_point: Point | None = None
     plan: "Plan | None" = None
+    slack_thread: SlackThread | None = None
+    messages: list[TripMessage] = []
+    proposals: list[Proposal] = []
 
 
 # --------------------------------------------------------------------------
@@ -141,6 +199,55 @@ class PlanRequest(BaseModel):
     transport: Transport | None = None
     radius_m: int | None = Field(default=None, ge=250, le=20_000)
     start_from: Point | None = None  # override the computed meeting point
+
+
+class SlackThreadRequest(BaseModel):
+    """Find-or-create a trip for a Slack thread. `city` and `name` are only
+    used when the thread has no trip yet."""
+
+    workspace_id: str = Field(min_length=1, max_length=64)
+    channel_id: str = Field(min_length=1, max_length=64)
+    thread_id: str = Field(min_length=1, max_length=64)
+    name: str = Field(default="Trip", min_length=1, max_length=80)
+    city: str = Field(min_length=1, max_length=120)
+    interests: list[str] = []
+
+
+class TravelerPreferenceRequest(BaseModel):
+    """Upsert. Omitted fields are left alone, so the agent can report one
+    detail it heard without erasing everything else it knew."""
+
+    slack_user_id: str | None = None
+    budget: float | None = Field(default=None, ge=0)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    preferences: list[str] | None = None
+    constraints: list[str] | None = None
+
+
+class AppendMessageRequest(BaseModel):
+    source: Literal["slack", "web"] = "slack"
+    source_message_id: str | None = Field(default=None, max_length=128)
+    author_id: str | None = Field(default=None, max_length=64)
+    author_name: str | None = Field(default=None, max_length=80)
+    text: str = Field(min_length=1, max_length=8000)
+
+
+class ProposalRequest(BaseModel):
+    interests: list[str] | None = None
+    max_stops: int = Field(default=5, ge=1, le=12)
+    transport: Transport | None = None
+    radius_m: int | None = Field(default=None, ge=250, le=20_000)
+    created_by: str | None = None
+    estimated_cost: float | None = Field(default=None, ge=0)
+    currency: str = Field(default="EUR", min_length=3, max_length=3)
+    assumptions: list[str] = []
+    note: str = Field(default="", max_length=500)
+    # Replaying the same Slack interaction must not stack up proposals.
+    idempotency_key: str | None = Field(default=None, max_length=128)
+
+
+class DecisionRequest(BaseModel):
+    decided_by: str | None = Field(default=None, max_length=80)
 
 
 class AskRequest(BaseModel):
