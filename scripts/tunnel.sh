@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the shared Cloudflare Tunnel for trip-planner.hermandaniel.com, forwarding
+# Run the shared Cloudflare Tunnel for somejoy.hermandaniel.com, forwarding
 # to a locally-run backend (+ its /ui/-mounted frontend build).
 #
 # This is a baton-pass setup: only one machine should run this (and the
@@ -34,5 +34,5 @@ if ! curl -sf http://127.0.0.1:8000/health >/dev/null; then
   exit 1
 fi
 
-echo "Backend is up. Starting the tunnel -- trip-planner.hermandaniel.com will point here."
+echo "Backend is up. Starting the tunnel -- somejoy.hermandaniel.com will point here."
 exec cloudflared tunnel run --token "$CLOUDFLARE_TUNNEL_TOKEN"
