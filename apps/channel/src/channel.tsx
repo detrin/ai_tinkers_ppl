@@ -2,6 +2,9 @@ import { createChannel } from "@copilotkit/channels";
 import { isSearchConfigured } from "agent-core";
 import { makeChannelAgent } from "./agent";
 import { required } from "./env";
+import { logChannel, safeError } from "./diagnostics";
+import { postLookupReply, simpleLookupCode } from "./fast-replies";
+import { lookupTrip } from "./trip-tools";
 import { IncidentCard, Timeline, TripCard, welcomeMessage } from "./components";
 import { proposeAction, readThread, searchTheWeb } from "./tools";
 import { addTripMemory, askTravelAgent, buildPackingList, createConsensusPoll, createTravelGroup, lookupTravelGroup, organizeTravelMedia, prepareLocalGuideSearch, proposeExpense, proposeItinerary } from "./trip-tools";
@@ -36,6 +39,7 @@ export const channel = createChannel({
   identifyUser: "platform",
 
   agent: makeChannelAgent,
+  showToolStatus: true,
   tools,
   components: [TripCard, IncidentCard, Timeline],
 
@@ -63,16 +67,44 @@ export const channel = createChannel({
 
 // A mention subscribes the conversation, so the agent then follows along instead
 // of needing to be @-mentioned every single turn.
-channel.onMention(async ({ thread }) => {
-  await thread.subscribe();
-  await thread.runAgent();
+channel.onMention(async ({ thread, message }) => {
+  const started = Date.now();
+  logChannel("mention.received");
+  try {
+    await thread.subscribe();
+    const code = simpleLookupCode(message.text ?? "");
+    if (code) {
+      await postLookupReply(thread, code, lookupTrip);
+      logChannel("lookup.complete", { elapsedMs: Date.now() - started });
+      return;
+    }
+    await thread.runAgent();
+    logChannel("mention.complete", { elapsedMs: Date.now() - started });
+  } catch (error) {
+    logChannel("mention.failed", { elapsedMs: Date.now() - started, error: safeError(error) });
+    throw error;
+  }
 });
 
 // Non-mentioned turns only ever reach onMessage — gate them on the flag or the
 // agent will answer every message in every channel it has been invited to.
-channel.onMessage(async ({ thread }) => {
-  if (await thread.isSubscribed()) {
-    await thread.runAgent();
+channel.onMessage(async ({ thread, message }) => {
+  const started = Date.now();
+  try {
+    if (await thread.isSubscribed()) {
+      logChannel("message.received");
+      const code = simpleLookupCode(message.text ?? "");
+      if (code) {
+        await postLookupReply(thread, code, lookupTrip);
+        logChannel("lookup.complete", { elapsedMs: Date.now() - started });
+        return;
+      }
+      await thread.runAgent();
+      logChannel("message.complete", { elapsedMs: Date.now() - started });
+    }
+  } catch (error) {
+    logChannel("message.failed", { elapsedMs: Date.now() - started, error: safeError(error) });
+    throw error;
   }
 });
 

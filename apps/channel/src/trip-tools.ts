@@ -1,5 +1,8 @@
 import { defineChannelTool } from "@copilotkit/channels";
 import { z } from "zod";
+import { logChannel, safeError } from "./diagnostics";
+import { expenseReceipt, expenseReceiptSchema } from "./fast-replies";
+import { REPLY_FAILED, REPLY_POSTED } from "./completed-reply";
 
 const tripApiUrl = () =>
   (process.env.TRIP_API_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
@@ -7,14 +10,20 @@ const tripApiUrl = () =>
 type TripApiError = { detail?: unknown };
 
 async function tripRequest(path: string, init?: RequestInit): Promise<unknown> {
+  const started = Date.now();
+  const operation = { method: init?.method ?? "GET", route: path.split("?")[0] };
+  logChannel("backend.start", operation);
   let response: Response;
   try {
     response = await fetch(`${tripApiUrl()}${path}`, init);
-  } catch {
+  } catch (error) {
+    logChannel("backend.failed", { ...operation, elapsedMs: Date.now() - started, error: safeError(error) });
     throw new Error(
       "The trip backend is unavailable. Start backend/app/main.py on port 8000 or set TRIP_API_URL.",
     );
   }
+
+  logChannel("backend.response", { ...operation, elapsedMs: Date.now() - started, status: response.status });
 
   if (!response.ok) {
     let detail = `Trip backend returned HTTP ${response.status}.`;
@@ -55,6 +64,10 @@ export const createTravelGroup = defineChannelTool({
   },
 });
 
+export async function lookupTrip(joinCode: string) {
+  return await tripRequest(`/api/groups/by-code/${encodeURIComponent(joinCode.trim().toUpperCase())}`);
+}
+
 export const lookupTravelGroup = defineChannelTool({
   name: "lookup_travel_group",
   description:
@@ -67,9 +80,7 @@ export const lookupTravelGroup = defineChannelTool({
       .describe("The six-character group join code shown in the web UI or Slack."),
   }),
   async handler({ joinCode }) {
-    return await tripRequest(
-      `/api/groups/by-code/${encodeURIComponent(joinCode.trim().toUpperCase())}`,
-    );
+    return await lookupTrip(joinCode);
   },
 });
 
@@ -160,11 +171,32 @@ export const proposeExpense = defineChannelTool({
     currency: z.string().length(3).default("EUR"), paidBy: z.string().min(1),
     participantIds: z.array(z.string().min(1)).min(1), mediaId: z.string().optional(),
   }),
-  async handler({ groupId, paidBy, participantIds, mediaId, ...rest }) {
-    return await tripRequest(`/api/groups/${encodeURIComponent(groupId)}/expenses`, {
+  async handler({ groupId, paidBy, participantIds, mediaId, ...rest }, { thread }) {
+    // Resolve display names with a bounded read; the backend still validates
+    // payer/participant membership at the write boundary.
+    let names: Record<string, string> = {};
+    try {
+      const group = z.object({ members: z.array(z.object({ id: z.string(), display_name: z.string() })) }).parse(
+        await tripRequest(`/api/groups/${encodeURIComponent(groupId)}`, { signal: AbortSignal.timeout(3000) }),
+      );
+      names = Object.fromEntries(group.members.map(m => [m.id, m.display_name]));
+    } catch { /* A name lookup must never cause a successful write to be retried. */ }
+    const result = await tripRequest(`/api/groups/${encodeURIComponent(groupId)}/expenses`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...rest, paid_by: paidBy, participant_ids: participantIds, media_id: mediaId }),
     });
+    const parsed = expenseReceiptSchema.safeParse(result);
+    if (!parsed.success) {
+      // A POST may have succeeded. Never invite an automatic retry of the write.
+      return { [REPLY_FAILED]: true, error: "The expense endpoint returned an unexpected result. Check Expenses & splits before retrying; the expense may already be saved." };
+    }
+    try {
+      await thread.post(expenseReceipt(parsed.data, names));
+    } catch (error) {
+      logChannel("expense.receipt_failed", { expenseId: parsed.data.id, error: safeError(error) });
+      return { id: parsed.data.id, [REPLY_FAILED]: true, error: "The expense was saved, but its Slack receipt failed. Do not create it again." };
+    }
+    return { ...parsed.data, [REPLY_POSTED]: true };
   },
 });
 
